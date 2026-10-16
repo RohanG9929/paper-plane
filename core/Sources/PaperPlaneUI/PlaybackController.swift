@@ -185,7 +185,9 @@ public final class PlaybackController {
     public func seek(toMovieTime time: Double) {
         guard phase == .onTV, let stream else { return }
         let offset = stream.session.offset
-        let latest = max(offset, (convertedEnd ?? movieTime) - 1)
+        // A second short of what's converted, so the TV never waits on a segment ffmpeg is still
+        // writing; but never behind where it's playing, so a seek forward never goes back.
+        let latest = max(offset, movieTime, (convertedEnd ?? movieTime) - 1)
         let target = min(max(time, offset), latest)
         movieTime = target
         player.seek(to: CMTime(seconds: target - offset, preferredTimescale: 600))

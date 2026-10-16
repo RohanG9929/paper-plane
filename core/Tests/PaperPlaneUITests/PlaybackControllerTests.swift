@@ -256,6 +256,22 @@ struct PlaybackControllerMediaTests {
         (try? FileManager.default.contentsOfDirectory(atPath: environment.folders.root.path)) ?? []
     }
 
+    /// Playing within the last second of what's converted, "forward 10 seconds" must not jump
+    /// back to the seek limit.
+    @Test func skippingForwardNeverGoesBack() async throws {
+        let controller = try await readyController()
+        controller.externalPlaybackChanged(active: true)
+        await PlaybackControllerTests.eventually { controller.convertedEnd.map { $0 > 9 } == true }
+        let converted = try #require(controller.convertedEnd)
+        controller.seek(toMovieTime: converted) // lands a second short of the converted end
+        await PlaybackControllerTests.eventually { controller.movieTime > converted - 0.9 }
+        let before = controller.movieTime
+        try #require(before > converted - 1)
+        controller.skip(by: 10)
+        #expect(controller.movieTime >= before)
+        await controller.shutDown()
+    }
+
     @Test func seeksStayWithinWhatIsConverted() async throws {
         let controller = try await readyController()
         controller.externalPlaybackChanged(active: true)

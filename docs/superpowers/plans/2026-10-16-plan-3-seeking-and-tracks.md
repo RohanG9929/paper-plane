@@ -148,6 +148,13 @@ struct SegmentWindowTests {
         #expect(Array(segments.prefix(16)).last?.fileName == "seg_00015.m4s")
     }
 
+    /// "More than 5 minutes behind": a segment ending exactly 300 s back is kept.
+    @Test func keepsASegmentEndingExactlyFiveMinutesBehind() {
+        let segments = Self.segments(100)
+        let actions = window.actions(playhead: 396, segments: segments, conversionPaused: false, conversionFinished: false)
+        #expect(actions == [.delete(Array(segments.prefix(15)))]) // segment 15 ends at 96 = 396 − 300
+    }
+
     @Test func aFinishedConversionIsNeitherPausedNorResumed() {
         #expect(window.actions(playhead: 0, segments: Self.segments(300), conversionPaused: false,
                                conversionFinished: true) == [])
@@ -250,7 +257,7 @@ public struct SegmentWindow: Equatable, Sendable {
 - [ ] **Step 4: Run the tests**
 
 Run: `scripts/test-core.sh --filter SegmentWindowTests`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -280,7 +287,7 @@ struct SidecarSubtitlesTests {
     @Test func findsPlainLanguageAndForcedFiles() {
         let names = ["Movie.mkv", "Movie.srt", "Movie.en.srt", "Movie.pt-BR.srt", "movie.FR.SRT", "Movie.en.forced.srt",
                      "Movie.forced.srt", "Movie Extras.srt", "Movie.Extras.Part.srt", "Other.en.srt", "Movie.mkv.srt",
-                     "Movie.nfo"]
+                     "Movie.Commentary.srt", "Movie.nfo"] // Movie.Commentary.srt belongs to Movie.Commentary.mkv
         let found = SidecarSubtitles.files(forVideoNamed: "Movie.mkv", among: names)
         #expect(found.map(\.name) == ["Movie.en.forced.srt", "Movie.en.srt", "Movie.forced.srt", "Movie.mkv.srt",
                                       "Movie.pt-BR.srt", "Movie.srt", "movie.FR.SRT"])
@@ -792,7 +799,8 @@ enum WebVTT {
             else { return nil } // a malformed cue
             guard end - offset > 0 else { return nil }
             let settings = endAndSettings.count > 1 ? " " + endAndSettings[1] : ""
-            lines[timing] = "\(timestamp(max(start - offset, 0))) --> \(timestamp(end - offset))\(settings)"
+            // timestamp() starts a cue that spans the session's start at 0.
+            lines[timing] = "\(timestamp(start - offset)) --> \(timestamp(end - offset))\(settings)"
             return lines.joined(separator: "\n")
         }
         return kept.joined(separator: "\n\n") + "\n"
@@ -1113,7 +1121,7 @@ git commit -m "feat(core): convert embedded and sidecar text subtitles to WebVTT
 - Test: `core/Tests/PaperPlaneCoreTests/ConversionPlannerTests.swift`, `core/Tests/PaperPlaneCoreTests/FFmpegArgumentsTests.swift`
 
 **Interfaces:**
-- Produces: `TrackChoice(audio:burnIn:)`; `BurnIn.picture(TrackRef) / .text`; `ConversionPlan.burnIn`; `HLSFileNames.burnInSubtitles` (`burn-in.vtt`). Picture subtitles go through `-filter_complex "[v][s]overlay=eof_action=pass…[video]"`; text through `-vf subtitles=f=burn-in.vtt` with ffmpeg running in the session folder (Task 7).
+- Produces: `TrackChoice(audio:burnIn:)`; `BurnIn.picture(TrackRef) / .text`; `ConversionPlan.burnIn`; `HLSFileNames.burnInSubtitles` (`burn-in.vtt`). Picture subtitles go through `-filter_complex "[v](tone map)[base];[base][s]overlay=eof_action=pass[video]"`; text through `-vf (tone map,)subtitles=f=burn-in.vtt` with ffmpeg running in the session folder (Task 7). Tone mapping always comes first, so subtitles keep their own colours.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1154,7 +1162,7 @@ git commit -m "feat(core): convert embedded and sidecar text subtitles to WebVTT
 ```diff
 --- a/core/Tests/PaperPlaneCoreTests/FFmpegArgumentsTests.swift
 +++ b/core/Tests/PaperPlaneCoreTests/FFmpegArgumentsTests.swift
-@@ -85,6 +85,29 @@
+@@ -85,6 +85,43 @@
          #expect(stereo.contains(subsequence: ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]))
      }
  
@@ -1163,12 +1171,26 @@ git commit -m "feat(core): convert embedded and sidecar text subtitles to WebVTT
 +        var plan = Self.plan(.encode(encode))
 +        plan.burnIn = .picture(TrackRef(index: 4))
 +        let args = plan.ffmpegArguments(input: Self.movie, start: 0, output: Self.output)
++        // The video is tone-mapped first, so the subtitles keep their own colours.
 +        #expect(args.contains(subsequence: [
-+            "-filter_complex", "[0:0][0:4]overlay=eof_action=pass," + ConversionPlan.toneMapFilter + "[video]",
++            "-filter_complex", "[0:0]" + ConversionPlan.toneMapFilter + "[base];[base][0:4]overlay=eof_action=pass[video]",
 +            "-map", "[video]", "-map", "0:2",
 +        ]))
 +        #expect(!args.contains("-vf"))
 +        #expect(!args.contains("0:0"))
++
++        plan.videoAction = .encode(VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: false, bitrate: 8_000_000))
++        #expect(plan.ffmpegArguments(input: Self.movie, start: 0, output: Self.output).contains(subsequence: [
++            "-filter_complex", "[0:0][0:4]overlay=eof_action=pass[video]",
++        ]))
++    }
++
++    @Test func textSubtitlesAreDrawnAfterToneMapping() {
++        let encode = VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: true, bitrate: 8_000_000)
++        var plan = Self.plan(.encode(encode))
++        plan.burnIn = .text
++        let args = plan.ffmpegArguments(input: Self.movie, start: 0, output: Self.output)
++        #expect(args.contains(subsequence: ["-vf", ConversionPlan.toneMapFilter + ",subtitles=f=burn-in.vtt"]))
 +    }
 +
 +    @Test func textSubtitlesAreDrawnFromTheSessionsWebVTT() {
@@ -1279,7 +1301,7 @@ Expected: FAIL — `extra argument 'burnIn' in call`, `value of type 'Conversion
  }
  
  extension ResolvedInput.Input {
-@@ -36,7 +38,21 @@
+@@ -36,7 +38,24 @@
              args += item.ffmpegInputArguments(seek: start)
          }
  
@@ -1290,9 +1312,12 @@ Expected: FAIL — `extra argument 'burnIn' in call`, `value of type 'Conversion
 +            filters.insert(Self.toneMapFilter, at: 0)
 +        }
 +        if case .picture(let subtitles) = burnIn {
-+            let chain = ["overlay=eof_action=pass"] + filters
-+            args += ["-filter_complex", "[\(video.mapSpecifier)][\(subtitles.mapSpecifier)]"
-+                + chain.joined(separator: ",") + "[video]", "-map", "[video]"]
++            // The video's own filters first, then the subtitles on top.
++            let base = filters.isEmpty
++                ? "[\(video.mapSpecifier)]"
++                : "[\(video.mapSpecifier)]" + filters.joined(separator: ",") + "[base];[base]"
++            args += ["-filter_complex", base + "[\(subtitles.mapSpecifier)]overlay=eof_action=pass[video]",
++                     "-map", "[video]"]
 +        } else {
 +            args += ["-map", video.mapSpecifier]
 +            if !filters.isEmpty {
@@ -1302,7 +1327,7 @@ Expected: FAIL — `extra argument 'burnIn' in call`, `value of type 'Conversion
          if let audio {
              args += ["-map", audio.mapSpecifier]
          } else {
-@@ -83,9 +99,6 @@
+@@ -83,9 +102,6 @@
                  "-b:v", String(encode.bitrate),
                  "-force_key_frames", "expr:gte(t,n_forced*\(Self.segmentSeconds))",
              ]
@@ -1317,7 +1342,7 @@ Expected: FAIL — `extra argument 'burnIn' in call`, `value of type 'Conversion
 - [ ] **Step 4: Run the tests**
 
 Run: `scripts/test-core.sh --filter "ConversionPlannerTests|FFmpegArgumentsTests"`
-Expected: PASS, 29 tests.
+Expected: PASS, 30 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1678,7 +1703,7 @@ git commit -m "feat(core): sessions offer subtitles moved to their start, burn i
 ```diff
 --- a/core/Tests/PaperPlaneCoreTests/StreamPipelineTests.swift
 +++ b/core/Tests/PaperPlaneCoreTests/StreamPipelineTests.swift
-@@ -40,6 +40,76 @@
+@@ -40,6 +40,89 @@
          }
          await #expect(throws: PlanError.noVideoTrack) {
              try await pipeline(root).start(.file(TestSupport.media("audio_only.m4a")))
@@ -1743,6 +1768,19 @@ git commit -m "feat(core): sessions offer subtitles moved to their start, burn i
 +        #expect(stream.subtitleNames == ["track-0-2": "Subtitles", "file-Movie: Part 1.en.srt": "English — Movie: Part 1.en.srt"])
 +        #expect(titles == ["Subtitles", "English — Movie: Part 1.en.srt"])
 +        #expect(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("sessions").path).isEmpty)
++    }
++
++    /// Subtitles not converted yet (or that couldn't be) aren't offered: the player would show
++    /// an option that plays nothing.
++    @Test func offersOnlyConvertedSubtitles() async throws {
++        let root = try TestSupport.makeTemporaryDirectory()
++        defer { try? FileManager.default.removeItem(at: root) }
++        let pipeline = try pipeline(root)
++        let media = try await pipeline.probe(.file(TestSupport.media("h264_ac3_51.mkv")))
++        let stream = try await pipeline.start(media, subtitles: SubtitleFiles(folder: root, files: [:]))
++        await stream.stop()
++        #expect(media.subtitles.count == 1)
++        #expect(stream.subtitleNames.isEmpty)
 +    }
 +
 +    @Test func burningInTextNeedsItsSubtitlesConverted() async throws {
@@ -1924,7 +1962,7 @@ Expected: FAIL — `value of type 'StreamPipeline' has no member 'probe'`.
 - [ ] **Step 4: Run the tests**
 
 Run: `scripts/test-core.sh --filter StreamPipelineTests`
-Expected: PASS, 7 pipeline tests (and the VideoFiles tests in the same file).
+Expected: PASS, 8 pipeline tests (and the VideoFiles tests in the same file).
 
 - [ ] **Step 5: Commit**
 
@@ -2455,7 +2493,7 @@ git commit -m "feat(core): idle-sleep assertion, redacted failure logs and free 
          await controller.shutDown()
          #expect(Self.sessionFolders(in: environment).isEmpty)
      }
-@@ -256,31 +327,209 @@
+@@ -256,31 +327,253 @@
          (try? FileManager.default.contentsOfDirectory(atPath: environment.folders.root.path)) ?? []
      }
  
@@ -2524,6 +2562,48 @@ git commit -m "feat(core): idle-sleep assertion, redacted failure logs and free 
 +        controller.restart(at: 5, loading: "Moving…")
 +        await controller.shutDown()
 +        #expect(Self.sessionFolders(in: environment).isEmpty)
++    }
++
++    /// Quitting straight after several quick seeks waits for every replaced session to clean up.
++    @Test func quittingDuringRapidSeeksLeavesNothing() async throws {
++        let environment = try Self.environment()
++        let controller = try await playingController(environment: environment)
++        for target in [7.0, 2, 8, 3, 6] {
++            controller.restart(at: target, loading: "Moving…")
++            try await Task.sleep(for: .milliseconds(40))
++        }
++        await controller.shutDown()
++        #expect(Self.sessionFolders(in: environment).isEmpty)
++    }
++
++    /// A replaced seek whose cleanup is slow (ffmpeg can take seconds to stop) is still waited
++    /// for when quitting, not just the latest one.
++    @Test func quittingWaitsForASlowCleanupOfAReplacedSeek() async throws {
++        let calls = OSAllocatedUnfairLock(initialState: 0)
++        let cleaning = OSAllocatedUnfairLock(initialState: 0)
++        let environment = try Self.environment(startStream: { pipeline, media, request in
++            let call = calls.withLock { $0 += 1; return $0 }
++            do {
++                return try await pipeline.start(media, at: request.start, audio: request.audio,
++                                                burnIn: request.burnIn, subtitles: request.subtitles)
++            } catch {
++                // The replaced seek (call 2) takes a second to clean up; the last one (call 3) a moment.
++                cleaning.withLock { $0 += 1 }
++                await withCheckedContinuation { continuation in
++                    DispatchQueue.global().asyncAfter(deadline: .now() + (call == 2 ? 1.0 : 0.1)) { continuation.resume() }
++                }
++                cleaning.withLock { $0 -= 1 }
++                throw error
++            }
++        })
++        let controller = try await playingController(environment: environment)
++        controller.restart(at: 7, loading: "Moving…")
++        try await Task.sleep(for: .milliseconds(20))
++        controller.restart(at: 3, loading: "Moving…")
++        try await Task.sleep(for: .milliseconds(20))
++        await controller.shutDown()
++        #expect(calls.withLock { $0 } == 3)
++        #expect(cleaning.withLock { $0 } == 0)
 +    }
 +
 +    /// Subtitles ffmpeg can't read don't stop the video: they turn off and a notice says so.
@@ -2628,9 +2708,11 @@ git commit -m "feat(core): idle-sleep assertion, redacted failure logs and free 
 +        let controller = try await playingController(environment: try Self.environment(host: { host.withLock { $0 } }))
 +        let first = try #require(controller.stream)
 +        controller.networkChanged() // same address: nothing to do
++        #expect(controller.loading == nil) // a new session would have started loading
 +        #expect(controller.stream === first)
 +        host.withLock { $0 = nil }
 +        controller.networkChanged() // offline for now: carry on, and serve again once back
++        #expect(controller.loading == nil)
 +        #expect(controller.stream === first)
 +
 +        host.withLock { $0 = "localhost" }
@@ -2688,7 +2770,7 @@ git commit -m "feat(core): idle-sleep assertion, redacted failure logs and free 
      }
  }
  
-@@ -296,4 +545,19 @@
+@@ -296,4 +589,19 @@
      static var available: Bool {
          ToolPaths.locate() != nil && FileManager.default.fileExists(atPath: file("h264_aac.mp4").path)
      }
@@ -3716,6 +3798,7 @@ struct NowPlayingTests {
     @Test func onlyAJumpOrAChangeIsPublished() {
         let published = Self.state(elapsed: 10, at: 0)
         #expect(!published.differs(from: Self.state(elapsed: 15, at: 5))) // 5 s later, 5 s further
+        #expect(!published.differs(from: Self.state(elapsed: 15.4, at: 5))) // a little drift is no jump
         #expect(published.differs(from: Self.state(elapsed: 60, at: 5))) // a seek
         #expect(published.differs(from: Self.state(elapsed: 15, playing: false, at: 5)))
         let paused = Self.state(elapsed: 10, playing: false, at: 0)
@@ -4061,6 +4144,10 @@ struct StatusMenuTests {
         let items = StatusMenu.items(for: state)
         #expect(items.map(\.title) == ["Movie", "Play", "Stop", "-"] + Self.always)
         #expect(!items[1].isEnabled)
+
+        var playing = state
+        playing.phase = .playing
+        #expect(StatusMenu.items(for: playing).map(\.title) == ["Movie", "Pause", "Stop", "Subtitles", "-"] + Self.always)
     }
 
     @Test func aFailureOffersToDismissIt() {

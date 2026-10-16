@@ -1,0 +1,23 @@
+# Paper Plane
+
+Send any video on your Mac to your AirPlay TV: MKV and other local files, or the video playing in Chrome or Brave.
+
+> Early development. There's nothing to install yet.
+
+## How it works
+
+Paper Plane converts on the fly whatever your TV can't play, copying everything it can, using ffmpeg. It serves the stream from your Mac and hands it to the TV with macOS's own AirPlay. The full design is in [docs/superpowers/specs/2026-10-15-paper-plane-design.md](docs/superpowers/specs/2026-10-15-paper-plane-design.md).
+
+## Development
+
+You need macOS 14 or later on Apple Silicon, and Swift 6. The Command Line Tools are enough for now.
+
+```bash
+brew install ffmpeg            # development and tests only; the app will bundle its own build
+scripts/make-test-media.sh     # generates test clips into testdata/media/
+scripts/test-core.sh           # runs the PaperPlaneCore tests
+```
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE).

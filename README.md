@@ -1,51 +1,157 @@
-# Paper Plane
+<a id="readme-top"></a>
 
-Send any video on your Mac to your AirPlay TV: MKV and other local files, the video playing in Chrome or Brave, YouTube, or a link you've copied.
+<div align="center">
 
-> Early development. There's nothing to install yet.
+<img src="app/PaperPlane/Assets.xcassets/AppIcon.appiconset/icon_256x256@2x.png" alt="Paper Plane icon" width="128"/>
+
+</div>
+
+<h1 align="center">Paper Plane</h1>
+
+<div align="center">
+
+![Swift](https://img.shields.io/badge/Swift-FA7343?style=for-the-badge&logo=swift&logoColor=white)
+![Xcode](https://img.shields.io/badge/Xcode-007ACC?style=for-the-badge&logo=Xcode&logoColor=white)
+![macOS](https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=apple&logoColor=white)
+![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-2F6FED?style=for-the-badge)
+
+**Throw any video at your TV.**
+
+MKVs, whatever's playing in Chrome or Brave, YouTube, a link you copied. If your TV has AirPlay, Paper Plane gets it there.
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/design/remote-tracks-dark.png">
+    <img src="docs/design/remote-tracks-light.png" alt="Paper Plane's remote window while a movie plays on the TV" width="420">
+  </picture>
+</p>
+
+## Table of Contents
+
+- [About](#about)
+- [Install](#install)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Privacy](#privacy)
+- [Requirements](#requirements)
+- [Building from source](#building-from-source)
+- [Contributing](#contributing)
+- [License](#license)
+
+## About
+
+Plenty of TVs have AirPlay built in now. macOS will mirror your screen to one, and QuickTime and Safari can send some videos, but an MKV, a film with a DTS soundtrack or the video playing in Chrome won't go.
+
+Paper Plane sends them anyway. It works out what your TV can't play, converts only that part with ffmpeg while the video plays, and streams it from your Mac using macOS's own AirPlay. Video that's already H.264 or HEVC is copied rather than re-encoded, so it starts in a couple of seconds and looks exactly like the file.
+
+If you've used Beamer, it's the same idea, free and open source.
+
+<p align="right"><a href="#readme-top">Back to top ⬆️</a></p>
+
+## Install
+
+There's no download yet. Paper Plane works on the Mac it's built on and is being tried out on a Sony TV now. The first release will be signed and notarized by Apple, so it opens like any other app. Until then, [build it yourself](#building-from-source).
+
+If a release turns up before it's notarized, macOS will say it can't check it. Open System Settings → Privacy & Security and click Open Anyway. The first time you play a video, allow Paper Plane to find devices on your local network.
+
+### The browser extension
+
+For videos playing in Chrome or Brave:
+
+1. Build it: `cd extension && npm ci --ignore-scripts && npm run build`.
+2. Open `chrome://extensions`, turn on Developer mode, click Load unpacked and choose `extension/dist`.
+3. Open Paper Plane once, so the browser can reach it.
+
+<p align="right"><a href="#readme-top">Back to top ⬆️</a></p>
+
+## Features
+
+### Drop a video, pick your TV
+
+Drop a file on the paper plane in the menu bar or on the remote, or use Open With → Paper Plane in Finder, then pick your TV with the AirPlay button. Anything ffmpeg can read works: MKV, MP4, WebM, AVI and the rest.
+
+Paper Plane copies what your TV can play and converts the rest. DTS and TrueHD soundtracks become audio the TV understands, VP9 and AV1 are re-encoded on the Mac's hardware encoder, and HDR stays HDR.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/design/remote-choosing-tv-dark.png">
+    <img src="docs/design/remote-choosing-tv-light.png" alt="The remote asking you to choose your TV" width="420">
+  </picture>
+</p>
+
+### Jump anywhere
+
+Seek anywhere in the film, even past what's been converted so far. Paper Plane starts again from there, which takes a few seconds. Media keys and the Now Playing controls work too.
+
+Your Mac stays awake while the TV plays. Closing a laptop's lid still puts it to sleep and stops the video.
+
+### Audio tracks and subtitles
+
+The speech-bubble button switches the audio track and the subtitles, including subtitles inside the file and `Movie.srt` or `Movie.en.srt` files next to it. Blu-ray and DVD subtitles are drawn into the picture.
+
+### Videos from Chrome and Brave
+
+Play a video on a site and click the paper plane in the toolbar. It's grey until it finds a video. When it's sure which one you're watching, a click sends it; when it isn't, it shows a count and lets you choose. Paper Plane starts where the browser was, and the browser's video pauses. Live streams play live. Sites that only offer DASH streams come in a later version.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/design/remote-live-dark.png">
+    <img src="docs/design/remote-live-light.png" alt="The remote playing a live stream on the TV" width="420">
+  </picture>
+</p>
+
+### YouTube and copied links
+
+Copy a link to a video on YouTube or most other video sites, then choose Play Copied Link from the menu bar or under the remote's drop zone, or press ⌘V in the remote. A link dragged from the browser's address bar onto the remote or the menu bar icon plays too. On YouTube from the extension, Paper Plane gets the video signed in as you are in the browser.
+
+Paper Plane finds the video on a page with [yt-dlp](https://github.com/yt-dlp/yt-dlp). It ships a copy and keeps it up to date. Recent versions of yt-dlp need a JavaScript runtime for YouTube, so if YouTube videos fail or play at low quality, install Deno: `brew install deno`.
+
+### Made to fit your TV
+
+Paper Plane was tested on a Sony XBR-55X950G, which won't take Dolby surround over AirPlay, so surround soundtracks become stereo by default. Settings has three switches for TVs that differ: surround sound, HDR to SDR, and drawing subtitles into the picture.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/design/settings-dark.png">
+    <img src="docs/design/settings-light.png" alt="Paper Plane's settings" width="460">
+  </picture>
+</p>
+
+If something goes wrong, Show Log reveals a log in `~/Library/Logs/Paper Plane/` that you can attach to a bug report.
+
+<p align="right"><a href="#readme-top">Back to top ⬆️</a></p>
 
 ## How it works
 
-Paper Plane converts on the fly whatever your TV can't play, copying everything it can, using ffmpeg. It serves the stream from your Mac and hands it to the TV with macOS's own AirPlay. The full design is in [docs/superpowers/specs/2026-10-15-paper-plane-design.md](docs/superpowers/specs/2026-10-15-paper-plane-design.md), with later decisions in [docs/superpowers/specs/](docs/superpowers/specs/).
+Paper Plane reads the video's tracks with ffprobe and decides, track by track, what to copy and what to convert. ffmpeg then writes the result as HLS, a few seconds at a time, into a temporary folder. A small web server on your Mac's network address serves it behind a random token, and macOS's AirPlay hands that address to the TV, which fetches the video from your Mac directly. Only a window around where you're watching is kept on disk.
 
-## Using it
+The full design is in [docs/superpowers/specs/2026-10-15-paper-plane-design.md](docs/superpowers/specs/2026-10-15-paper-plane-design.md), with later decisions in [docs/superpowers/specs/](docs/superpowers/specs/). What the Sony test found is in [docs/sony-test-results.md](docs/sony-test-results.md).
 
-- Drop a video on the paper plane in the menu bar or on the remote window, or use Open With → Paper Plane in Finder. Then pick your TV with the AirPlay button.
-- Or copy a link to a video, on YouTube or most other video sites, and choose Play Copied Link: in the menu bar menu, under the remote's drop zone, or with ⌘V in the remote. A link dragged from the browser's address bar onto the remote or the menu bar icon plays too.
-- Seek anywhere. Past what's converted so far, Paper Plane starts converting from there, which takes a few seconds.
-- The speech-bubble button switches the audio track and the subtitles, including `Movie.srt` and `Movie.en.srt` files beside the video.
-- Settings (in the menu bar menu) has three switches for TVs that differ from the one Paper Plane was tested with: surround sound, HDR to SDR, and drawing subtitles into the picture.
-- If something goes wrong, Show Log reveals a log in `~/Library/Logs/Paper Plane/` for a bug report. It leaves out cookies, passwords and your home folder's path.
-- Your Mac stays awake while the TV plays, but closing a laptop's lid still puts it to sleep and stops the video.
+<p align="right"><a href="#readme-top">Back to top ⬆️</a></p>
 
-### Videos in Chrome or Brave
+## Privacy
 
-1. Build the extension: `cd extension && npm ci --ignore-scripts && npm run build`.
-2. In Chrome or Brave, open `chrome://extensions`, turn on Developer mode, click Load unpacked and choose `extension/dist`.
-3. Open Paper Plane once, so the browser can reach it.
+Paper Plane has no accounts, no analytics and no servers of its own. It connects to three places: the site a video comes from, your TV, and GitHub, to update yt-dlp.
 
-Then play a video on a site and click the paper plane in the toolbar. It's grey until it finds a video; when it's sure which one you're watching, a click sends it, and when it isn't, it shows a count and lets you choose. Paper Plane comes forward to choose your TV, starts where the browser was, and the browser's video pauses. Live streams play live. On YouTube, Paper Plane gets the video from the page itself, signed in as you are in the browser. Sites that only offer DASH streams come in a later version.
+- The extension passes along the site's cookies for the video you send. Paper Plane sends them only to that site, only to fetch that video, and never saves them. YouTube's cookie reaches yt-dlp in memory, never on its command line or in a file.
+- yt-dlp updates come from yt-dlp's GitHub releases, at most once a day and whenever a page fails, and each download is checked against the release's SHA-256 sums.
+- Logs leave out cookies, passwords and your home folder's path.
 
-The extension passes the site's cookies for the video along to Paper Plane, which sends them only to that site, only to fetch that video, and never saves them.
+<p align="right"><a href="#readme-top">Back to top ⬆️</a></p>
 
-### YouTube and other sites' pages
+## Requirements
 
-Paper Plane finds the video on a page with [yt-dlp](https://github.com/yt-dlp/yt-dlp). It ships a copy and keeps it up to date from yt-dlp's GitHub releases, at most once a day and whenever a page fails, checking each download against the release's SHA-256 sums. Updates go in `~/Library/Application Support/Paper Plane/bin/`. YouTube's cookie reaches yt-dlp in memory, never on its command line or in a file.
+- macOS 14 Sonoma or later, on Apple silicon
+- A TV or streaming box with AirPlay
+- Chrome or Brave, for videos playing in the browser
 
-Recent versions of yt-dlp need a JavaScript runtime for YouTube. If YouTube videos fail or play at low quality, install Deno: `brew install deno`.
+<p align="right"><a href="#readme-top">Back to top ⬆️</a></p>
 
-## Installing a release
+## Building from source
 
-None has been published yet. Once one is:
-
-1. Download `Paper-Plane-<version>.zip` and `Paper-Plane-Extension-<version>.zip` from the Releases page.
-2. Unzip the app, move it to Applications and open it. It isn't notarized yet, so macOS says it can't check it: open System Settings → Privacy & Security and click Open Anyway.
-3. Unzip the extension, then in Chrome or Brave open `chrome://extensions`, turn on Developer mode, click Load unpacked and choose the `Paper Plane Extension` folder.
-4. The first time you play a video, allow Paper Plane to find devices on your local network.
-
-## Development
-
-You need macOS 14 or later on Apple Silicon, Xcode 26 or later, and Homebrew.
+You need Xcode 26 or later and Homebrew.
 
 ```bash
 brew install ffmpeg            # development and tests only
@@ -78,6 +184,20 @@ Debug builds made before `scripts/build-ffmpeg.sh` use Homebrew's ffmpeg. Releas
 PAPERPLANE_FFMPEG="$PWD/vendor/ffmpeg/bin/ffmpeg" PAPERPLANE_FFPROBE="$PWD/vendor/ffmpeg/bin/ffprobe" scripts/test-core.sh
 ```
 
+<p align="right"><a href="#readme-top">Back to top ⬆️</a></p>
+
+## Contributing
+
+Paper Plane is a personal project, and help is welcome.
+
+- 🐛 Found a bug or want a feature? Open an issue, and attach the log from Show Log if something broke.
+- 🔧 Before a pull request, run `scripts/test-core.sh` and the extension's tests.
+- ⭐ If it's useful to you, a star helps other people find it.
+
+<p align="right"><a href="#readme-top">Back to top ⬆️</a></p>
+
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE).
+Paper Plane is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.
+
+<p align="right"><a href="#readme-top">Back to top ⬆️</a></p>

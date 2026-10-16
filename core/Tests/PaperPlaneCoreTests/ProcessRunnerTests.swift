@@ -24,6 +24,15 @@ struct ProcessRunnerTests {
         #expect(result.stderr.count == 300_000)
     }
 
+    /// waitUntilExit() can deadlock on the main thread, which Swift Testing sometimes runs tests on.
+    @MainActor @Test(.timeLimit(.minutes(1)))
+    func completesWhenAwaitedFromTheMainActor() async throws {
+        for _ in 0..<20 {
+            let result = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/true"), arguments: [])
+            #expect(result.status == 0)
+        }
+    }
+
     @Test func missingExecutableThrows() async {
         await #expect(throws: (any Error).self) {
             try await ProcessRunner.run(URL(fileURLWithPath: "/nonexistent/tool"), arguments: [])

@@ -133,8 +133,8 @@ final class HLSServer {
         URL(string: "http://127.0.0.1:\(port)/\(path)")!
     }
 
+    /// Doesn't wait for the exit: waitUntilExit() deadlocks if this runs on the main thread.
     func stop() {
         process.terminate()
-        process.waitUntilExit()
     }
 }

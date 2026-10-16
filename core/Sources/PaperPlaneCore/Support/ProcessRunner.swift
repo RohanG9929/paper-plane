@@ -17,6 +17,13 @@ enum ProcessRunner {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         process.standardInput = FileHandle.nullDevice
+        // Learn the exit status from the termination handler: waitUntilExit() deadlocks when it
+        // runs on the main thread, because Foundation can need that thread to report the exit.
+        let (exits, exitContinuation) = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
+        process.terminationHandler = { finished in
+            exitContinuation.yield(finished.terminationStatus)
+            exitContinuation.finish()
+        }
         try process.run()
 
         // Drain both pipes at the same time so a full pipe buffer can't stall the child.
@@ -25,8 +32,11 @@ enum ProcessRunner {
         async let stdout = readToEnd(stdoutHandle)
         async let stderr = readToEnd(stderrHandle)
         let (out, err) = await (stdout, stderr)
-        process.waitUntilExit()
-        return ProcessResult(status: process.terminationStatus, stdout: out, stderr: err)
+        var status: Int32 = -1
+        for await code in exits {
+            status = code
+        }
+        return ProcessResult(status: status, stdout: out, stderr: err)
     }
 
     private static func readToEnd(_ handle: FileHandle) async -> Data {

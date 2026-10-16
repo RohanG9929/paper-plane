@@ -33,6 +33,20 @@ struct ProcessRunnerTests {
         }
     }
 
+    @Test func cancellingStopsTheChildAndThrows() async throws {
+        let run = Task {
+            try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sleep"), arguments: ["10"])
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        let cancelledAt = ContinuousClock.now
+        run.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await run.value
+        }
+        // Returning early means the child exited: run() only returns once its pipes close.
+        #expect(ContinuousClock.now - cancelledAt < .seconds(5))
+    }
+
     @Test func missingExecutableThrows() async {
         await #expect(throws: (any Error).self) {
             try await ProcessRunner.run(URL(fileURLWithPath: "/nonexistent/tool"), arguments: [])

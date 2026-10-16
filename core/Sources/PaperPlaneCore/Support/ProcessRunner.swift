@@ -6,7 +6,8 @@ struct ProcessResult: Sendable {
     var stderr: Data
 }
 
-/// Runs a command to completion and captures its output.
+/// Runs a command to completion and captures its output. Cancelling the calling task
+/// terminates the child and throws `CancellationError`.
 enum ProcessRunner {
     static func run(_ executable: URL, arguments: [String]) async throws -> ProcessResult {
         let process = Process()
@@ -25,18 +26,24 @@ enum ProcessRunner {
             exitContinuation.finish()
         }
         try process.run()
+        let running = RunningProcess(process)
 
-        // Drain both pipes at the same time so a full pipe buffer can't stall the child.
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
-        async let stdout = readToEnd(stdoutHandle)
-        async let stderr = readToEnd(stderrHandle)
-        let (out, err) = await (stdout, stderr)
-        var status: Int32 = -1
-        for await code in exits {
-            status = code
+        return try await withTaskCancellationHandler {
+            // Drain both pipes at the same time so a full pipe buffer can't stall the child.
+            async let stdout = readToEnd(stdoutHandle)
+            async let stderr = readToEnd(stderrHandle)
+            let (out, err) = await (stdout, stderr)
+            var status: Int32 = -1
+            for await code in exits {
+                status = code
+            }
+            try Task.checkCancellation()
+            return ProcessResult(status: status, stdout: out, stderr: err)
+        } onCancel: {
+            running.terminate()
         }
-        return ProcessResult(status: status, stdout: out, stderr: err)
     }
 
     private static func readToEnd(_ handle: FileHandle) async -> Data {
@@ -45,5 +52,18 @@ enum ProcessRunner {
                 continuation.resume(returning: handle.readDataToEndOfFile())
             }
         }
+    }
+}
+
+/// Lets the cancellation handler, which can run on any thread, stop the child.
+private final class RunningProcess: @unchecked Sendable {
+    private let process: Process
+
+    init(_ process: Process) {
+        self.process = process
+    }
+
+    func terminate() {
+        process.terminate()
     }
 }

@@ -14,7 +14,9 @@ final class RemoteWindow {
          open: @escaping @MainActor @Sendable ([URL]) -> Void) {
         let root = RemoteWindowContent(controller: controller, openVideo: openVideo, playCopiedLink: playCopiedLink,
                                        open: open)
-        window = NSWindow(contentViewController: NSHostingController(rootView: root))
+        let window = PastingWindow(contentViewController: NSHostingController(rootView: root))
+        window.paste = playCopiedLink
+        self.window = window
         window.title = "Paper Plane"
         window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
@@ -68,5 +70,15 @@ struct RemoteWindowContent: View {
         }
         .padding(.top, 18) // room for the window buttons in the transparent title bar
         .background(.background) // the padding above RemoteView's own background
+    }
+}
+
+/// The remote's window: Edit ▸ Paste (⌘V) with nothing else to take it plays what was copied.
+/// Only here, so ⌘V in Settings leaves what's playing alone.
+private final class PastingWindow: NSWindow {
+    var paste: (@MainActor () -> Void)?
+
+    @objc func paste(_ sender: Any?) {
+        paste?()
     }
 }

@@ -124,17 +124,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// its ffmpeg.
     private func play(_ request: PlayRequest) async -> PlayReply {
         guard !quitting else { return .failed("Paper Plane is quitting.") }
-        switch request.source {
-        case .stream(_, .dash, _): break
-        case .stream: remote.show()
-        case .page(let url, _) where Links.isYouTubePage(url): remote.show()
-        case .page: break
+        if PlaybackController.refusal(of: request) == nil {
+            remote.show()
         }
         return await controller.play(request)
     }
 
-    /// Play Copied Link, and ⌘V in the remote (Edit ▸ Paste, with no text field to take it): a video
-    /// copied in Finder, or a link (Milestone 4, decision 11).
+    /// Play Copied Link, and ⌘V in the remote: a video copied in Finder, or a link (Milestone 4,
+    /// decision 11).
     func playCopiedLink() {
         remote.show()
         let pasteboard = NSPasteboard.general
@@ -144,10 +141,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             controller.play(files)
         }
-    }
-
-    @objc func paste(_ sender: Any?) {
-        playCopiedLink()
     }
 
     /// Finder's Open With, and files dropped on the app's icon.

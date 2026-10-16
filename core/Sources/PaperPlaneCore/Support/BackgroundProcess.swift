@@ -23,9 +23,11 @@ final class BackgroundProcess: @unchecked Sendable {
     private let process = Process()
     private let state = OSAllocatedUnfairLock(initialState: State())
 
-    init(_ executable: URL, arguments: [String]) throws {
+    /// Runs `executable` in `directory` (the current directory when nil).
+    init(_ executable: URL, arguments: [String], in directory: URL? = nil) throws {
         process.executableURL = executable
         process.arguments = arguments
+        process.currentDirectoryURL = directory
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         let stderr = Pipe()

@@ -29,19 +29,22 @@ public struct Transcoder: Sendable {
     }
 
     /// Starts converting `input` from `start` seconds into `folder` (an empty folder from
-    /// `SessionFolders`), and returns once the first segments and `master.m3u8` are ready.
+    /// `SessionFolders`), and returns once the first segments and `master.m3u8` are ready. The
+    /// session offers `subtitles`' tracks and burns in its `burnIn`, moved to the session's start.
     ///
     /// Cancelling the calling task stops ffmpeg and throws `CancellationError`. If ffmpeg fails
     /// first, this throws `TranscodeError.ffmpegFailed`. Either way the folder is deleted.
     public func start(_ plan: ConversionPlan, input: ResolvedInput, from start: Double = 0,
-                      in folder: URL) async throws -> TranscodeSession {
+                      in folder: URL, subtitles: SessionSubtitles = SessionSubtitles()) async throws -> TranscodeSession {
         let session: TranscodeSession
         do {
             let offset = try await sessionOffset(plan, input: input, start: start)
+            let renditions = subtitles.write(into: folder, offset: offset)
+            // ffmpeg runs in the session folder, so the burn-in subtitles need no escaped path.
             let process = try BackgroundProcess(
-                tools.ffmpeg, arguments: plan.ffmpegArguments(input: input, start: start, output: folder))
+                tools.ffmpeg, arguments: plan.ffmpegArguments(input: input, start: start, output: folder), in: folder)
             session = TranscodeSession(folder: folder, requestedStart: start, offset: offset, process: process,
-                                       plan: plan, segmentsBeforeReady: segmentsBeforeReady)
+                                       plan: plan, subtitles: renditions, segmentsBeforeReady: segmentsBeforeReady)
         } catch {
             try? FileManager.default.removeItem(at: folder)
             throw error
@@ -105,6 +108,8 @@ public final class TranscodeSession: Sendable {
     public let offset: Double
     /// Segment progress, then `.finished` or `.failed`. One consumer at a time.
     public let events: AsyncStream<TranscodeEvent>
+    /// The names of the subtitle tracks the master playlist offers.
+    public let subtitleNames: [String]
 
     private struct State {
         /// nil until the session is ready or has failed to start.
@@ -118,17 +123,18 @@ public final class TranscodeSession: Sendable {
     private let monitor: Task<Void, Never>
 
     init(folder: URL, requestedStart: Double, offset: Double, process: BackgroundProcess, plan: ConversionPlan,
-         segmentsBeforeReady: Int) {
+         subtitles: [MasterPlaylist.Subtitle] = [], segmentsBeforeReady: Int) {
         self.folder = folder
         self.requestedStart = requestedStart
         self.offset = offset
         self.process = process
+        subtitleNames = subtitles.map(\.name)
         let (events, continuation) = AsyncStream.makeStream(of: TranscodeEvent.self)
         self.events = events
         let state = state
         monitor = Task.detached {
             await Self.watch(folder: folder, process: process, state: state, continuation: continuation, plan: plan,
-                             segmentsBeforeReady: segmentsBeforeReady)
+                             subtitles: subtitles, segmentsBeforeReady: segmentsBeforeReady)
         }
     }
 
@@ -140,6 +146,13 @@ public final class TranscodeSession: Sendable {
     /// Resumes a paused ffmpeg (SIGCONT).
     public func resume() {
         process.send(SIGCONT)
+    }
+
+    /// Deletes segments the player has left behind (spec §4.2).
+    public func delete(_ segments: [SegmentWindow.Segment]) {
+        for segment in segments {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(segment.fileName))
+        }
     }
 
     /// Stops ffmpeg, waits for it to exit and deletes the session folder. Safe to call twice.
@@ -202,7 +215,7 @@ public final class TranscodeSession: Sendable {
     /// second after: only the remote's "converted so far" depends on it.
     private static func watch(folder: URL, process: BackgroundProcess, state: OSAllocatedUnfairLock<State>,
                               continuation: AsyncStream<TranscodeEvent>.Continuation, plan: ConversionPlan,
-                              segmentsBeforeReady: Int) async {
+                              subtitles: [MasterPlaylist.Subtitle], segmentsBeforeReady: Int) async {
         let playlistURL = folder.appendingPathComponent(HLSFileNames.mediaPlaylist)
         var reported = 0
         var end = 0.0
@@ -228,7 +241,8 @@ public final class TranscodeSession: Sendable {
                     bandwidth: MasterPlaylist.bandwidth(segmentSizes: sizes),
                     initSegment: InitSegment((try? Data(contentsOf: initSegment)) ?? Data()),
                     frameRate: plan.frameRate,
-                    videoRange: plan.videoRange)
+                    videoRange: plan.videoRange,
+                    subtitles: subtitles)
                 do {
                     try master.write(to: folder.appendingPathComponent(MasterPlaylist.fileName),
                                      atomically: true, encoding: .utf8)

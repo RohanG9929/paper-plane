@@ -23,6 +23,19 @@ public struct ToolPaths: Equatable, Sendable {
         return ToolPaths(ffmpeg: ffmpeg, ffprobe: ffprobe)
     }
 
+    /// The ffmpeg and ffprobe the app ships, in `Contents/Helpers/` of the bundle at `bundleURL`.
+    /// nil if either is missing (a development build made without scripts/build-ffmpeg.sh).
+    public static func inBundle(at bundleURL: URL) -> ToolPaths? {
+        let helpers = bundleURL.appendingPathComponent("Contents/Helpers", isDirectory: true)
+        let ffmpeg = helpers.appendingPathComponent("ffmpeg")
+        let ffprobe = helpers.appendingPathComponent("ffprobe")
+        let files = FileManager.default
+        guard files.isExecutableFile(atPath: ffmpeg.path), files.isExecutableFile(atPath: ffprobe.path) else {
+            return nil
+        }
+        return ToolPaths(ffmpeg: ffmpeg, ffprobe: ffprobe)
+    }
+
     private static func find(_ name: String, override: String?, in directories: [String]) -> URL? {
         let files = FileManager.default
         if let override, files.isExecutableFile(atPath: override) {

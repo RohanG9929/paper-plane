@@ -37,6 +37,19 @@ struct ToolPathsTests {
         #expect(ToolPaths.locate(environment: ["PATH": directory.path], fallbackDirectories: []) == nil)
     }
 
+    @Test func findsToolsInsideTheAppBundle() throws {
+        let app = try TestSupport.makeTemporaryDirectory().appendingPathComponent("Paper Plane.app")
+        defer { try? FileManager.default.removeItem(at: app.deletingLastPathComponent()) }
+        let helpers = app.appendingPathComponent("Contents/Helpers")
+        try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+        #expect(ToolPaths.inBundle(at: app) == nil)
+
+        let ffmpeg = try makeExecutable(named: "ffmpeg", in: helpers)
+        #expect(ToolPaths.inBundle(at: app) == nil)
+        let ffprobe = try makeExecutable(named: "ffprobe", in: helpers)
+        #expect(ToolPaths.inBundle(at: app) == ToolPaths(ffmpeg: ffmpeg, ffprobe: ffprobe))
+    }
+
     private func makeExecutable(named name: String, in directory: URL) throws -> URL {
         let url = directory.appendingPathComponent(name)
         try Data("#!/bin/sh\n".utf8).write(to: url)

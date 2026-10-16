@@ -4,7 +4,8 @@
 #   1. With the app running: a stream that plays, and one the site refuses.
 #   2. With the app quit: the helper starts it, then relays the request.
 #   3. After quitting: no socket, no ffmpeg and no session folder left behind.
-# The app shows its window while this runs. It leaves Chrome's and Brave's folders alone.
+# The app shows its window while this runs. It leaves Chrome's and Brave's folders alone, and
+# doesn't let the app look for a yt-dlp update.
 # Usage: scripts/check-bridge.sh [path to Paper Plane.app]
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
@@ -14,15 +15,21 @@ SOCKET="$HOME/Library/Application Support/Paper Plane/bridge.sock"
 SESSIONS="$HOME/Library/Caches/Paper Plane/sessions"
 [[ -x "$HOST" ]] || { echo "No helper at $HOST. Build the app first (see README)." >&2; exit 2; }
 
-# The helper starts the app without arguments, so the setting goes in its defaults for the run.
-had_setting="$(defaults read dev.paperplane.app PaperPlaneInstallsBrowserHosts 2>/dev/null || true)"
-defaults write dev.paperplane.app PaperPlaneInstallsBrowserHosts -bool NO
+# The helper starts the app without arguments, so the settings go in its defaults for the run.
+SETTINGS=(PaperPlaneInstallsBrowserHosts PaperPlaneUpdatesYtDlp)
+had=()
+for setting in "${SETTINGS[@]}"; do
+  had+=("$(defaults read dev.paperplane.app "$setting" 2>/dev/null || true)")
+  defaults write dev.paperplane.app "$setting" -bool NO
+done
 restore() {
-  if [[ -z "$had_setting" ]]; then
-    defaults delete dev.paperplane.app PaperPlaneInstallsBrowserHosts 2>/dev/null
-  else
-    defaults write dev.paperplane.app PaperPlaneInstallsBrowserHosts -bool "$had_setting"
-  fi
+  for i in "${!SETTINGS[@]}"; do
+    if [[ -z "${had[$i]}" ]]; then
+      defaults delete dev.paperplane.app "${SETTINGS[$i]}" 2>/dev/null
+    else
+      defaults write dev.paperplane.app "${SETTINGS[$i]}" -bool "${had[$i]}"
+    fi
+  done
   [[ -n "${server:-}" ]] && kill "$server" 2>/dev/null
   rm -f "$portfile"
 }
@@ -61,7 +68,7 @@ expect() { # name, expected, actual
 }
 
 quit_app
-open "$APP" --args -PaperPlaneInstallsBrowserHosts NO
+open "$APP" --args -PaperPlaneInstallsBrowserHosts NO -PaperPlaneUpdatesYtDlp NO
 until [[ -S "$SOCKET" ]]; do sleep 0.1; done
 expect "a stream plays" '{"ok":true}' "$(send "http://127.0.0.1:$port/cookie/pp=1/h264_aac.mp4")"
 expect "a refused stream says so" \

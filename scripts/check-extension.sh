@@ -39,6 +39,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-open "$APP" --args -PaperPlaneInstallsBrowserHosts NO
+open "$APP" --args -PaperPlaneInstallsBrowserHosts NO -PaperPlaneUpdatesYtDlp NO
 until [[ -S "$SOCKET" ]]; do sleep 0.1; done
 cd extension && node check-in-chrome.mjs "$CHROME" "$work/profile" "http://127.0.0.1:$port/player.html"

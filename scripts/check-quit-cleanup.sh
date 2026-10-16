@@ -18,7 +18,8 @@ fi
 
 leftovers=0
 launch() {
-  open "$APP" --args -PaperPlaneInstallsBrowserHosts NO # leave Chrome's and Brave's folders alone
+  # Leave Chrome's and Brave's folders alone, and GitHub: no yt-dlp update check.
+  open "$APP" --args -PaperPlaneInstallsBrowserHosts NO -PaperPlaneUpdatesYtDlp NO
   until pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
   sleep 1
 }

@@ -74,7 +74,8 @@ enum FFprobeParser {
                     height: stream.height ?? 0,
                     pixelFormat: stream.pixFmt,
                     hdr: HDRFormat(colorTransfer: stream.colorTransfer),
-                    frameRate: frameRate(stream.avgFrameRate) ?? frameRate(stream.rFrameRate)))
+                    frameRate: frameRate(stream.avgFrameRate) ?? frameRate(stream.rFrameRate),
+                    variant: stream.tag("variant_bitrate").flatMap(Int.init)))
             case "audio":
                 info.audio.append(AudioTrack(
                     ref: ref,
@@ -82,7 +83,8 @@ enum FFprobeParser {
                     channels: stream.channels ?? 2,
                     language: language(stream.tag("language")),
                     title: stream.tag("title"),
-                    isDefault: stream.flag("default")))
+                    isDefault: stream.flag("default"),
+                    variant: stream.tag("variant_bitrate").flatMap(Int.init)))
             case "subtitle":
                 info.subtitles.append(SubtitleTrack(
                     ref: ref,

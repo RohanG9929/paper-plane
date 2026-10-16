@@ -58,12 +58,15 @@ public struct RemoteState: Equatable, Sendable {
     /// Where the current session starts, in movie time: converted video runs from here to
     /// `converted`. nil or 0 when it starts at the beginning.
     public var convertedFrom: Double?
+    /// A live web stream (spec §5.3): "Live" in place of the scrubber, and no skipping.
+    public var isLive: Bool
 
     public init(phase: Phase = .idle, title: String = "", detail: String = "", elapsed: Double = 0,
                 duration: Double? = nil, converted: Double? = nil, volume: Double = 1, showsWelcome: Bool = false,
                 notice: String? = nil, audioChoices: [Choice] = [], audio: String? = nil,
                 subtitleChoices: [Choice] = [], subtitle: String? = nil, loading: String? = nil,
-                canShowLog: Bool = false, showsTVHelp: Bool = true, convertedFrom: Double? = nil) {
+                canShowLog: Bool = false, showsTVHelp: Bool = true, convertedFrom: Double? = nil, isLive: Bool = false) {
+        self.isLive = isLive
         self.phase = phase
         self.title = title
         self.detail = detail
@@ -86,6 +89,11 @@ public struct RemoteState: Equatable, Sendable {
     /// Play/pause, skip and seek only mean something once the TV is playing the video.
     public var canControlPlayback: Bool {
         phase == .playing || phase == .paused
+    }
+
+    /// Skips and the scrubber: not for a live stream.
+    public var canSeek: Bool {
+        canControlPlayback && !isLive
     }
 
     /// Volume only reaches anything once the TV is playing.

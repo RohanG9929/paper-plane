@@ -97,10 +97,10 @@ struct ConversionPlannerTests {
     // MARK: - Audio
 
     @Test(arguments: [
-        (AudioCodecName.aac, 2, AudioAction.copy),
-        (.aac, 6, .copy),
-        (.ac3, 6, .copy),
-        (.eac3, 6, .copy),
+        (AudioCodecName.aac, 2, AudioAction.copy(.aac)),
+        (.aac, 6, .copy(.aac)),
+        (.ac3, 6, .copy(.ac3)),
+        (.eac3, 6, .copy(.eac3)),
         (.other("dts"), 6, .eac3Surround),
         (.other("truehd"), 8, .eac3Surround),
         (.other("flac"), 8, .eac3Surround),
@@ -113,7 +113,7 @@ struct ConversionPlannerTests {
     }
 
     @Test(arguments: [
-        (AudioCodecName.aac, 2, AudioAction.copy),
+        (AudioCodecName.aac, 2, AudioAction.copy(.aac)),
         (.aac, 6, .aacStereo),
         (.ac3, 6, .aacStereo),
         (.eac3, 2, .aacStereo),
@@ -131,7 +131,7 @@ struct ConversionPlannerTests {
         let flagged = try ConversionPlanner.plan(Self.media([Self.video(.h264)], [english, japanese]),
                                                  profile: Self.surroundAndHDR)
         #expect(flagged.audio == japanese.ref)
-        #expect(flagged.audioAction == .copy)
+        #expect(flagged.audioAction == .copy(.ac3))
 
         var unflagged = japanese
         unflagged.isDefault = false

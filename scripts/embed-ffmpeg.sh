@@ -11,7 +11,7 @@ if [ ! -x "$SOURCE/ffmpeg" ] || [ ! -x "$SOURCE/ffprobe" ]; then
     exit 1
   fi
   echo "warning: vendor/ffmpeg/bin is missing, so this build uses Homebrew's ffmpeg. Run scripts/build-ffmpeg.sh."
-  rm -rf "$DEST"
+  rm -f "$DEST/ffmpeg" "$DEST/ffprobe" # the browser helper lives there too
   exit 0
 fi
 mkdir -p "$DEST"

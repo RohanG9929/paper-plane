@@ -125,6 +125,8 @@ extension ConversionPlan {
     private func audioArguments() -> [String] {
         switch audioAction {
         case nil: return []
+        // AAC from MPEG-TS has ADTS headers fMP4 can't hold; the filter passes other AAC through.
+        case .copy(.aac): return ["-c:a", "copy", "-bsf:a", "aac_adtstoasc"]
         case .copy: return ["-c:a", "copy"]
         case .eac3Surround: return ["-c:a", "eac3", "-b:a", "640k", "-ac", "6"]
         case .aacStereo: return ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]

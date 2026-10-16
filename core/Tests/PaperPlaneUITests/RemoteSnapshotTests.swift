@@ -42,6 +42,12 @@ struct RemoteSnapshotTests {
         failedWithLog.canShowLog = true
         var choosingAgain = choosing
         choosingAgain.showsTVHelp = false
+        var live = movie
+        live.title = "Evening news"
+        live.detail = "1080p"
+        live.duration = nil
+        live.converted = nil
+        live.isLive = true
         return [
             ("welcome", RemoteState(showsWelcome: true)),
             ("idle", RemoteState()),
@@ -57,6 +63,7 @@ struct RemoteSnapshotTests {
             ("moving", moving),
             ("failed-with-log", failedWithLog),
             ("choosing-tv-again", choosingAgain),
+            ("live", live),
         ]
     }()
 

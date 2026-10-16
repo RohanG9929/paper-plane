@@ -18,7 +18,7 @@ fi
 
 leftovers=0
 launch() {
-  open "$APP"
+  open "$APP" --args -PaperPlaneInstallsBrowserHosts NO # leave Chrome's and Brave's folders alone
   until pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
   sleep 1
 }

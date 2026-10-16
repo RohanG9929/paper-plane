@@ -10,6 +10,14 @@ struct SegmentWindowTests {
 
     let window = SegmentWindow()
 
+    /// A web stream's ffmpeg is never paused: the site may drop an idle connection (addendum
+    /// M3-16). What's behind is still deleted.
+    @Test func aWindowThatDoesntPauseStillDeletesWhatIsBehind() {
+        let window = SegmentWindow.forFreeSpace(1_000_000_000)
+        #expect(window.actions(playhead: 400, segments: Self.segments(200), conversionPaused: false,
+                               conversionFinished: false, restsConversion: false) == [.delete(Self.segments(16))])
+    }
+
     @Test func keepsConvertingWhileLessThanTwentyMinutesAhead() {
         #expect(window.actions(playhead: 0, segments: Self.segments(10), conversionPaused: false,
                                conversionFinished: false) == [])

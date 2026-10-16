@@ -26,11 +26,12 @@ public final class NowPlaying {
         var isPlaying: Bool
         var hasArtwork: Bool
         var at: Date
+        var isLive = false
 
         func differs(from next: Published) -> Bool {
             let expected = elapsed + (isPlaying ? next.at.timeIntervalSince(at) : 0)
             return title != next.title || duration != next.duration || isPlaying != next.isPlaying
-                || hasArtwork != next.hasArtwork || abs(next.elapsed - expected) > 1.5
+                || hasArtwork != next.hasArtwork || isLive != next.isLive || abs(next.elapsed - expected) > 1.5
         }
     }
 
@@ -91,6 +92,7 @@ public final class NowPlaying {
         case .play: if controller.isPaused { controller.togglePause() }
         case .pause: if !controller.isPaused { controller.togglePause() }
         case .stop: controller.stop()
+        case .skip where controller.isLive, .seek where controller.isLive: return false // nothing to seek in
         case .skip(let seconds): controller.skip(by: seconds)
         case .seek(let time): controller.seek(toMovieTime: time)
         }
@@ -114,7 +116,7 @@ public final class NowPlaying {
         }
         let next = Published(title: title, duration: controller.duration, elapsed: controller.movieTime,
                              isPlaying: controller.phase == .onTV && !controller.isPaused,
-                             hasArtwork: controller.artwork != nil, at: .now)
+                             hasArtwork: controller.artwork != nil, at: .now, isLive: controller.isLive)
         guard published.map({ $0.differs(from: next) }) ?? true else { return }
         published = next
         center.nowPlayingInfo = Self.info(next, artwork: controller.artwork)
@@ -130,6 +132,9 @@ public final class NowPlaying {
         ]
         if let duration = state.duration {
             info[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+        if state.isLive {
+            info[MPNowPlayingInfoPropertyIsLiveStream] = true
         }
         if let artwork {
             info[MPMediaItemPropertyArtwork] = Self.artwork(artwork)

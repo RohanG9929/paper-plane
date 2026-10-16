@@ -36,7 +36,7 @@ public struct StreamPipeline: Sendable {
     public func extractSubtitles(_ media: PlaybackMedia) async throws -> SubtitleFiles {
         let folder = try folders.create()
         // A web stream's subtitles would mean downloading the whole video to read them.
-        guard media.input.inputs.allSatisfy(\.url.isFileURL) else {
+        guard !media.input.isWeb else {
             return SubtitleFiles(folder: folder, files: [:])
         }
         let files = await SubtitleExtractor(tools: tools).extract(media.subtitles, from: media.input, into: folder)

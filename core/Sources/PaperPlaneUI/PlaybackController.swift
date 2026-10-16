@@ -118,6 +118,17 @@ public final class PlaybackController {
     }
     public internal(set) var movieTime = 0.0
     public private(set) var duration: Double?
+    /// A web stream with no end (spec §5.3): nothing to seek in.
+    public var isLive: Bool {
+        isWeb && duration == nil
+    }
+    /// From the browser rather than a file: read through the web proxy, and its conversion never
+    /// rested (addendum M3-16).
+    var isWeb: Bool {
+        media?.input.isWeb ?? false
+    }
+    /// ffmpeg's only way to the web for the current video (security review, Plan 4).
+    @ObservationIgnored var proxy: WebProxy?
     /// How far the conversion has got, in movie time.
     public internal(set) var convertedEnd: Double?
     public private(set) var artwork: NSImage?
@@ -157,7 +168,7 @@ public final class PlaybackController {
     /// The text subtitles as WebVTT, once converted.
     @ObservationIgnored var subtitleFiles: SubtitleFiles?
     @ObservationIgnored var extracting: Task<SubtitleFiles?, Never>?
-    @ObservationIgnored private var starting: Task<Void, Never>?
+    @ObservationIgnored private var starting: Task<PlayReply, Never>?
     /// A new session for a seek or a track change. Work for a playback or session that has
     /// been replaced finds its task cancelled.
     @ObservationIgnored var restarting: Task<Void, Never>?
@@ -230,20 +241,42 @@ public final class PlaybackController {
     /// Plays the first video among `urls`, replacing whatever is playing. With no video among
     /// them, what's playing carries on and a notice says why nothing happened.
     public func play(_ urls: [URL]) {
-        if showsWelcome {
-            dismissWelcome()
-        }
+        dismissWelcome()
         guard let url = VideoFiles.videos(in: urls).first else {
             if let first = urls.first {
                 show(notice: "“\(first.lastPathComponent)” isn't a video file.")
             }
             return
         }
+        begin(.file(url), at: 0)
+    }
+
+    /// Plays a video sent from the browser (spec §5.3), `startAt` seconds in, and answers once
+    /// it's ready for the TV or with why it can't play, so the browser pauses only when Paper
+    /// Plane has it. A page (YouTube) needs yt-dlp, which comes later: it leaves what's playing
+    /// alone.
+    public func play(_ request: PlayRequest) async -> PlayReply {
+        guard let input = request.input else {
+            return .failed("YouTube comes in a later version of Paper Plane.")
+        }
+        if case .stream(_, .dash, _) = request.source {
+            // ffmpeg reads DASH only when built with libxml2, which Paper Plane's isn't yet.
+            return .failed("Paper Plane can't play this site's kind of stream (DASH) yet.")
+        }
+        return await begin(input, at: request.startAt).value
+    }
+
+    /// Replaces whatever is playing with `input`.
+    @discardableResult
+    private func begin(_ input: ResolvedInput, at startAt: Double) -> Task<PlayReply, Never> {
+        dismissWelcome()
         dismissNotice()
         stop()
-        title = ResolvedInput.file(url).title
+        title = input.title
         phase = .preparing
-        starting = Task { await start(url) }
+        let task = Task { await start(input, at: startAt) }
+        starting = task
+        return task
     }
 
     public func togglePause() {
@@ -260,15 +293,18 @@ public final class PlaybackController {
         // A cancelled start or session change cleans up after itself (stopping ffmpeg, deleting
         // its folder); a stream has to be stopped, and converted subtitles deleted. Either way
         // shutDown() waits for it.
-        let (starting, restarting, stream, extracting) = (starting, restarting, stream, extracting)
+        let (starting, restarting, stream, extracting, proxy) = (starting, restarting, stream, extracting, proxy)
         starting?.cancel()
         restarting?.cancel()
         extracting?.cancel()
-        if starting != nil || restarting != nil || stream != nil || extracting != nil {
+        if starting != nil || restarting != nil || stream != nil || extracting != nil || proxy != nil {
             afterwards {
                 await withTaskGroup(of: Void.self) { group in
-                    group.addTask { await stream?.stop() }
-                    group.addTask { await starting?.value }
+                    group.addTask {
+                        await stream?.stop()
+                        proxy?.stop() // once ffmpeg, which reads through it, has stopped
+                    }
+                    group.addTask { _ = await starting?.value }
                     group.addTask { await restarting?.value }
                     group.addTask { await extracting?.value?.remove() }
                 }
@@ -278,6 +314,7 @@ public final class PlaybackController {
         self.restarting = nil
         self.stream = nil
         self.extracting = nil
+        self.proxy = nil
         media = nil
         subtitleFiles = nil
         watchingEvents?.cancel()
@@ -310,6 +347,7 @@ public final class PlaybackController {
     }
 
     public func dismissWelcome() {
+        guard showsWelcome else { return }
         showsWelcome = false
         welcomeSeen()
     }
@@ -349,10 +387,23 @@ public final class PlaybackController {
 
     // MARK: - Starting
 
-    private func start(_ url: URL) async {
+    /// Probes `input` and starts its first session `startAt` seconds in (at the live edge for a
+    /// live stream). Returns the browser's answer: ok once the video waits for the TV.
+    private func start(_ input: ResolvedInput, at startAt: Double) async -> PlayReply {
         do {
             let pipeline = try self.pipeline()
-            let media = try await environment.probe(pipeline, .file(url))
+            var input = input
+            if input.isWeb {
+                // ffmpeg reads the site through the proxy, never directly (security review, Plan 4).
+                let proxy = try await WebProxy.start(serving: input)
+                guard !Task.isCancelled else {
+                    proxy.stop()
+                    return replaced
+                }
+                self.proxy = proxy
+                input = proxy.input
+            }
+            let media = try await environment.probe(pipeline, input)
             try Task.checkCancellation()
             self.media = media
             duration = media.info.duration
@@ -367,25 +418,36 @@ public final class PlaybackController {
             startExtractingSubtitles(media, with: pipeline)
             // Subtitles are off unless the file marks a track as forced (spec §4, step 2).
             subtitle = media.subtitles.first(where: \.isForced)?.id
-            let stream = try await environment.startStream(pipeline, media, try await request(at: 0))
+            // (A live stream starts at its live edge whatever this says: see request(at:).)
+            let stream = try await environment.startStream(pipeline, media, try await request(at: playable(startAt)))
             guard !Task.isCancelled else {
                 await stream.stop()
-                return
+                return replaced
             }
             adopt(stream)
             phase = .waitingForTV
             externalPlaybackChanged()
             networkChanged() // in case the address changed while this started
-            if let jpeg = await environment.thumbnail(pipeline.tools, url, duration), self.stream === stream {
+            // A web stream's artwork would mean fetching more from the site than playing needs.
+            if !input.isWeb, let url = input.inputs.first?.url,
+               let jpeg = await environment.thumbnail(pipeline.tools, url, duration), self.stream === stream {
                 artwork = NSImage(data: jpeg)
             }
+            return .ok
         } catch {
             // stop() or a newer play() took over: whatever this start ran into, it is no longer
             // this controller's business, and acting on it would stop the newer video.
-            guard !Task.isCancelled, !(error is CancellationError) else { return }
-            log.error("Couldn't play \(url.lastPathComponent, privacy: .private): \(String(describing: error), privacy: .private)")
-            fail(PlaybackError.message(for: error), error: error)
+            guard !Task.isCancelled, !(error is CancellationError) else { return replaced }
+            log.error("Couldn't play \(input.title, privacy: .private): \(String(describing: error), privacy: .private)")
+            let message = PlaybackError.message(for: error, fromTheWeb: input.isWeb)
+            fail(message, error: error)
+            return .failed(message)
         }
+    }
+
+    /// The answer for a start that stop() or a newer video cancelled.
+    private var replaced: PlayReply {
+        .failed(phase == .idle ? "Stopped in Paper Plane." : "Another video took its place.")
     }
 
     /// A pipeline with the current tools, address and settings.
@@ -396,9 +458,10 @@ public final class PlaybackController {
                               host: host)
     }
 
-    /// Converts the text subtitles in the background; sessions started afterwards offer them.
+    /// Converts the text subtitles in the background; sessions started afterwards offer them. A
+    /// web stream's would mean downloading all of it to read them.
     private func startExtractingSubtitles(_ media: PlaybackMedia, with pipeline: StreamPipeline) {
-        guard media.subtitles.contains(where: \.isText) else { return }
+        guard media.subtitles.contains(where: \.isText), !media.input.isWeb else { return }
         let environment = environment
         extracting = Task { [weak self] in
             let files = try? await environment.extractSubtitles(pipeline, media)
@@ -452,10 +515,17 @@ public final class PlaybackController {
                 manageWindow()
             case .finished:
                 conversionFinished = true
-                convertedEnd = duration ?? convertedEnd
+                if proxy?.siteRefused == true {
+                    // ffmpeg skipped what the site refused and stopped there.
+                    show(notice: "The site stopped sending this video part-way through. "
+                        + "Reload the page, then click Paper Plane again for the rest.")
+                } else {
+                    convertedEnd = duration ?? convertedEnd
+                }
             case .failed(let message):
                 log.error("ffmpeg failed: \(message, privacy: .private)")
-                fail("Converting the video stopped part-way through.", error: ConversionStopped(message: message))
+                let stopped = ConversionStopped(message: message)
+                fail(PlaybackError.message(for: stopped, fromTheWeb: isWeb), error: stopped)
             }
         }
     }
@@ -556,12 +626,21 @@ enum PlaybackError: Error {
     case noFFmpeg
     case offline
 
-    /// A plain-language message for the remote.
-    static func message(for error: any Error) -> String {
+    /// A site refusing a web stream (spec §6): its link has expired, so the page has to be
+    /// reloaded for a fresh one.
+    static let siteStopped = "The site stopped the stream — reload the page, then click Paper Plane again."
+
+    /// A plain-language message for the remote. A video `fromTheWeb` isn't a file to try again.
+    static func message(for error: any Error, fromTheWeb: Bool = false) -> String {
         switch error {
+        case let stopped as ConversionStopped:
+            SiteRefusal.isRefusal(stderr: stopped.message) ? siteStopped : "Converting the video stopped part-way through."
+        case _ where SiteRefusal.isRefusal(error): siteStopped
         case PlaybackError.noFFmpeg: "Paper Plane's video converter is missing. Reinstall Paper Plane."
         case PlaybackError.offline: "Your Mac isn't on a network, so the TV can't reach it. Connect to your network and try again."
-        case PlanError.noVideoTrack: "This file has no video."
+        case PlanError.noVideoTrack: fromTheWeb ? "This stream has no video." : "This file has no video."
+        case is MediaProbeError where fromTheWeb, is TranscodeError where fromTheWeb:
+            "Paper Plane couldn't get this video from the site. Reload the page, then click Paper Plane again."
         case is MediaProbeError: "Paper Plane couldn't read this file. It may be damaged or not a video."
         case is TranscodeError: "Paper Plane couldn't convert this video. Try another file."
         default: "Something went wrong. Try again, or choose another video." // the details are in Show Log

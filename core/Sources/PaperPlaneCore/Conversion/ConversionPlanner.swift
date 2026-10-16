@@ -79,10 +79,10 @@ public enum ConversionPlanner {
     static func audioAction(for track: AudioTrack, profile: OutputProfile) -> AudioAction {
         if profile.surround {
             switch track.codec {
-            case .aac, .ac3, .eac3: return .copy
+            case .aac, .ac3, .eac3: return .copy(track.codec)
             case .other: return track.channels > 2 ? .eac3Surround : .aacStereo
             }
         }
-        return track.codec == .aac && track.channels <= 2 ? .copy : .aacStereo
+        return track.codec == .aac && track.channels <= 2 ? .copy(.aac) : .aacStereo
     }
 }

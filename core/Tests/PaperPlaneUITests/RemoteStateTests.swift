@@ -40,6 +40,17 @@ struct RemoteStateTests {
         RemoteState(phase: phase, title: "Movie", detail: "1080p", elapsed: 10, duration: 100, converted: 40)
     }
 
+    /// Spec §5.3: a live stream has nothing to seek in, but plays and pauses.
+    @Test func aLiveStreamCantBeSought() {
+        var live = Self.state(.playing)
+        live.duration = nil
+        live.isLive = true
+        #expect(!live.canSeek)
+        #expect(live.canControlPlayback)
+        #expect(Self.state(.playing).canSeek)
+        #expect(!Self.state(.preparing).canSeek)
+    }
+
     @Test func onlyAPlayingOrPausedVideoTakesTransportCommands() {
         #expect(Self.state(.playing).canControlPlayback)
         #expect(Self.state(.paused).canControlPlayback)

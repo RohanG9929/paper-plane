@@ -83,6 +83,8 @@ public struct VideoTrack: Equatable, Sendable {
     public var hdr: HDRFormat?
     /// Frames per second, from ffprobe's `avg_frame_rate` (or `r_frame_rate`). nil when unknown.
     public var frameRate: Double? = nil
+    /// In an HLS master playlist, the bandwidth of the variant it belongs to.
+    public var variant: Int? = nil
 }
 
 public struct AudioTrack: Equatable, Sendable {
@@ -92,6 +94,9 @@ public struct AudioTrack: Equatable, Sendable {
     public var language: String?
     public var title: String?
     public var isDefault: Bool
+    /// In an HLS master playlist, the bandwidth of the variant it belongs to; nil for a rendition
+    /// the variants share.
+    public var variant: Int? = nil
 }
 
 public struct SubtitleTrack: Equatable, Sendable {
@@ -120,5 +125,19 @@ public struct MediaInfo: Equatable, Sendable {
             video: parts.flatMap(\.video),
             audio: parts.flatMap(\.audio),
             subtitles: parts.flatMap(\.subtitles))
+    }
+
+    /// An HLS master playlist lists every variant's streams. This keeps the best variant's video
+    /// (the tallest; the highest bandwidth among equals) and its audio, with any rendition the
+    /// variants share, so ffmpeg fetches only that variant. Anything without variants is
+    /// unchanged.
+    func keepingBestVariant() -> MediaInfo {
+        let best = video.compactMap { track in track.variant.map { (height: track.height, bandwidth: $0) } }
+            .max { ($0.height, $0.bandwidth) < ($1.height, $1.bandwidth) }
+        guard let best else { return self }
+        var kept = self
+        kept.video = video.filter { $0.variant == best.bandwidth && $0.height == best.height }
+        kept.audio = audio.filter { $0.variant == nil || $0.variant == best.bandwidth }
+        return kept
     }
 }

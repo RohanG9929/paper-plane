@@ -23,7 +23,7 @@ extension PlaybackController {
             audioChoices: audioChoices, audio: audio?.id, subtitleChoices: subtitleChoices, subtitle: subtitle,
             loading: loading, canShowLog: failureLog != nil, showsTVHelp: showsTVHelp,
             // From the oldest segment still on disk, as seeking measures it.
-            convertedFrom: stream.map { $0.session.offset + (segments.first?.start ?? 0) })
+            convertedFrom: stream.map { $0.session.offset + (segments.first?.start ?? 0) }, isLive: isLive)
     }
 
     // MARK: - Seeking
@@ -38,15 +38,20 @@ extension PlaybackController {
     /// AirPlay reports it finished (docs/sony-test-results.md, row 7b), so there is nothing to
     /// wait for.
     public func seek(toMovieTime time: Double) {
-        guard phase == .onTV, stream != nil else { return }
-        // Not past the last second: the end of a file is where conversion would find nothing.
-        let target = max(0, duration.map { min(time, max($0 - 1, 0)) } ?? time)
+        guard phase == .onTV, stream != nil, !isLive else { return }
+        let target = playable(time)
         if let sessionTime = sessionTime(forMovieTime: target) {
             movieTime = target
             player.seek(to: CMTime(seconds: sessionTime, preferredTimescale: 600))
         } else {
             restart(at: target, loading: "Moving to \(TimeText.clock(target))…")
         }
+    }
+
+    /// `time` within the film: from the start to a second short of the end, where conversion
+    /// would find nothing.
+    func playable(_ time: Double) -> Double {
+        max(0, duration.map { min(time, max($0 - 1, 0)) } ?? time)
     }
 
     /// Where `time` is in the current session, if it can be played without a new session: from
@@ -115,7 +120,8 @@ extension PlaybackController {
             option = nil
             show(notice: "Paper Plane couldn't read the subtitles “\(chosen.displayName)”.")
         }
-        return StreamRequest(start: start ?? movieTime, audio: audio, burnIn: option.flatMap { burnsIn($0) ? $0 : nil },
+        // A live stream has nowhere else to start than its live edge.
+        return StreamRequest(start: isLive ? 0 : start ?? movieTime, audio: audio, burnIn: option.flatMap { burnsIn($0) ? $0 : nil },
                              subtitles: subtitleFiles)
     }
 
@@ -203,14 +209,14 @@ extension PlaybackController {
 
     /// Keeps converting ahead of the player, rests ffmpeg when it's far enough ahead, and deletes
     /// what the player has left behind (spec §4.2). With little disk space, keeps less ahead and
-    /// says so once.
+    /// says so once. A web stream's conversion is never rested (addendum M3-16).
     func manageWindow() {
         // During a seek the old session still plays on the TV: its segments aren't behind.
         guard let stream, seekTarget == nil else { return }
-        let free = freeSpace()
-        let window = SegmentWindow.forFreeSpace(free)
+        let window = SegmentWindow.forFreeSpace(freeSpace())
         let actions = window.actions(playhead: movieTime - stream.session.offset, segments: segments,
-                                     conversionPaused: conversionPaused, conversionFinished: conversionFinished)
+                                     conversionPaused: conversionPaused, conversionFinished: conversionFinished,
+                                     restsConversion: !isWeb)
         for action in actions {
             switch action {
             case .pauseConversion:
@@ -224,9 +230,10 @@ extension PlaybackController {
                 segments.removeFirst(old.count)
             }
         }
-        if window != SegmentWindow(), !warnedAboutSpace { // keeping less ahead than usual
+        if window != SegmentWindow(), !warnedAboutSpace { // low enough to keep less ahead
             warnedAboutSpace = true
-            show(notice: "Your Mac is low on disk space, so Paper Plane converts only a few minutes ahead.")
+            show(notice: isWeb ? "Your Mac is low on disk space, so a long video may stop part-way through."
+                : "Your Mac is low on disk space, so Paper Plane converts only a few minutes ahead.")
         }
     }
 

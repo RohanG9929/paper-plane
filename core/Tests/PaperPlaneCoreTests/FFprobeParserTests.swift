@@ -25,6 +25,34 @@ struct FFprobeParserTests {
     }
     """
 
+    /// An HLS master playlist (ffprobe's real output): every variant's streams, each tagged with
+    /// its variant's bandwidth, the smallest listed first; an audio rendition shared by both
+    /// variants has no tag.
+    static let masterJSON = """
+    {
+      "streams": [
+        {"index": 0, "codec_name": "h264", "codec_type": "video", "width": 320, "height": 180, "tags": {"variant_bitrate": "400000"}},
+        {"index": 1, "codec_name": "aac", "codec_type": "audio", "channels": 2, "tags": {"variant_bitrate": "400000"}},
+        {"index": 2, "codec_name": "h264", "codec_type": "video", "width": 1280, "height": 720, "tags": {"variant_bitrate": "3000000"}},
+        {"index": 3, "codec_name": "aac", "codec_type": "audio", "channels": 2, "tags": {"variant_bitrate": "3000000"}},
+        {"index": 4, "codec_name": "aac", "codec_type": "audio", "channels": 2, "tags": {"language": "fre"}},
+        {"index": 5, "codec_name": "h264", "codec_type": "video", "width": 1280, "height": 720, "tags": {"variant_bitrate": "2000000"}}
+      ],
+      "format": {"duration": "10.0"}
+    }
+    """
+
+    /// Paper Plane plays the best variant: the tallest, the highest bandwidth among equals, with
+    /// its own audio and any shared rendition; the rest ffmpeg needn't download.
+    @Test func keepsTheBestVariantOfAMasterPlaylist() throws {
+        let info = try FFprobeParser.parse(Data(Self.masterJSON.utf8)).keepingBestVariant()
+        #expect(info.video.map(\.ref.index) == [2])
+        #expect(info.audio.map(\.ref.index) == [3, 4])
+        #expect(info.video.first?.variant == 3_000_000)
+        let file = try FFprobeParser.parse(Data(Self.movieJSON.utf8))
+        #expect(file.keepingBestVariant() == file) // a file has no variants
+    }
+
     @Test func readsFrameRates() throws {
         let json = """
             {"streams": [

@@ -57,7 +57,8 @@ public enum VideoAction: Equatable, Sendable {
 }
 
 public enum AudioAction: Equatable, Sendable {
-    case copy
+    /// Copied as it is (AAC, AC3 or E-AC3).
+    case copy(AudioCodecName)
     /// E-AC3 5.1 at 640 kb/s (7.1 sources are downmixed).
     case eac3Surround
     /// AAC stereo at 192 kb/s.

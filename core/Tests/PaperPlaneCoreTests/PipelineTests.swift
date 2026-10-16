@@ -115,10 +115,11 @@ final class HLSServer {
     private let process = Process()
     let port: Int
 
-    init(directory: URL) async throws {
+    /// `log` collects each request's host, path and cookie.
+    init(directory: URL, log: URL? = nil) async throws {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["python3", TestSupport.repoRoot.appendingPathComponent("scripts/serve-hls.py").path,
-                             directory.path]
+                             directory.path] + (log.map { ["--log", $0.path] } ?? [])
         let stdout = Pipe()
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice

@@ -244,8 +244,12 @@ struct NowPlayingCard<RoutePicker: View>: View {
                 if case .choosingTV = state.phase, state.showsTVHelp {
                     chooseTVCallout
                 }
-                Scrubber(state: state, seek: actions.seek, skip: actions.skip)
-                    .disabled(!state.canControlPlayback)
+                if state.isLive {
+                    LiveIndicator()
+                } else {
+                    Scrubber(state: state, seek: actions.seek, skip: actions.skip)
+                        .disabled(!state.canControlPlayback)
+                }
                 transport
                 volume
             }
@@ -318,14 +322,14 @@ struct NowPlayingCard<RoutePicker: View>: View {
         }
         .overlay {
             HStack(spacing: 20) {
-                TransportButton(symbol: "gobackward.10", label: "Back 10 seconds", enabled: state.canControlPlayback) {
+                TransportButton(symbol: "gobackward.10", label: "Back 10 seconds", enabled: state.canSeek) {
                     actions.skip(-10)
                 }
                 .keyboardShortcut(.leftArrow, modifiers: [])
                 PlayButton(isPlaying: state.phase == .playing, label: state.playButtonLabel,
                            enabled: state.canControlPlayback, action: actions.togglePlay)
                     .keyboardShortcut(.space, modifiers: [])
-                TransportButton(symbol: "goforward.10", label: "Forward 10 seconds", enabled: state.canControlPlayback) {
+                TransportButton(symbol: "goforward.10", label: "Forward 10 seconds", enabled: state.canSeek) {
                     actions.skip(10)
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [])
@@ -574,6 +578,25 @@ extension EnvironmentValues {
 }
 
 // MARK: - Scrubber
+
+/// In place of the scrubber for a live stream, which has nothing to seek in (spec §5.3). As tall
+/// as the scrubber, so the controls below stay put.
+struct LiveIndicator: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(.red)
+                .frame(width: 8, height: 8)
+            Text("Live")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .frame(height: 34)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Live stream")
+    }
+}
 
 /// Elapsed time, a track showing what's been played and what's ready, and the time left.
 /// Drag or click to seek; VoiceOver adjusts it in 10-second steps.

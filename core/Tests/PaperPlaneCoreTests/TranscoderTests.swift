@@ -6,7 +6,7 @@ import Testing
 /// Transcoder behaviour with a scripted stand-in for ffmpeg, so timing and failures are exact.
 struct TranscoderTests {
     static let plan = ConversionPlan(video: TrackRef(index: 0), videoAction: .copy(.h264),
-                                     audio: TrackRef(index: 1), audioAction: .copy)
+                                     audio: TrackRef(index: 1), audioAction: .copy(.aac))
     static let input = ResolvedInput.file(URL(fileURLWithPath: "/Movies/movie.mkv"))
 
     @Test func returnsOnceTwoSegmentsAndTheMasterPlaylistExist() async throws {

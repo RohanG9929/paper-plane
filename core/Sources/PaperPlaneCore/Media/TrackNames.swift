@@ -88,8 +88,11 @@ public enum TrackNames {
         "rum": "ro", "slo": "sk", "tib": "bo", "wel": "cy",
     ]
 
+    /// The name is also a playlist NAME, a quoted value that can't hold a double quote or a line
+    /// break, and the player's options are matched by it; so it never has either.
     static func name(language: String?, title: String?, fallback: String, extra: String?) -> String {
         let languageName = languageName(language)
+        let title = title.map { String($0.map { $0 == "\"" ? "'" : $0.isNewline ? " " : $0 }) }
         var name = languageName ?? title ?? fallback
         if languageName != nil, let title, !title.isEmpty {
             name += " — \(title)"
@@ -100,13 +103,20 @@ public enum TrackNames {
         return name
     }
 
-    /// `names` made unique, so each can identify one track: a repeat gets " 2", " 3", ….
+    /// `names` made unique, so each can identify one track: a repeat gets the lowest " 2", " 3", …
+    /// that no other track is already called.
     public static func unique(_ names: [String]) -> [String] {
-        var seen: [String: Int] = [:]
+        let given = Set(names)
+        var taken: Set<String> = []
         return names.map { name in
-            let count = (seen[name] ?? 0) + 1
-            seen[name] = count
-            return count == 1 ? name : "\(name) \(count)"
+            var candidate = name
+            var number = 1
+            while taken.contains(candidate) || (number > 1 && given.contains(candidate)) {
+                number += 1
+                candidate = "\(name) \(number)"
+            }
+            taken.insert(candidate)
+            return candidate
         }
     }
 }

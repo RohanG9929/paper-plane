@@ -14,6 +14,17 @@ struct SidecarSubtitlesTests {
         #expect(found.map(\.isForced) == [true, false, true, false, false, false, false])
     }
 
+    /// Subtitles for the deaf and hard of hearing are often marked `sdh`, `hi` or `cc`; `sdh` alone
+    /// is not a language (Foundation would call it Southern Kurdish).
+    @Test func findsHearingImpairedFiles() {
+        let found = SidecarSubtitles.files(forVideoNamed: "Movie.mkv",
+                                           among: ["Movie.en.sdh.srt", "Movie.en.hi.srt", "Movie.sdh.srt",
+                                                   "Movie.en.cc.forced.srt", "Movie.en.sdh.extra.srt"])
+        #expect(found.map(\.name) == ["Movie.en.cc.forced.srt", "Movie.en.hi.srt", "Movie.en.sdh.srt", "Movie.sdh.srt"])
+        #expect(found.map(\.language) == ["en", "en", "en", nil])
+        #expect(found.map(\.isForced) == [true, false, false, false])
+    }
+
     @Test func awkwardNamesStillMatch() {
         let found = SidecarSubtitles.files(forVideoNamed: "Movie: Part 1 (Director's Cut) é.mp4",
                                            among: ["Movie: Part 1 (Director's Cut) é.en.srt", "Movie: Part 1.srt"])

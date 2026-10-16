@@ -71,9 +71,13 @@ public enum SidecarSubtitles {
             if isForced {
                 parts.removeLast()
             }
+            // "sdh", "hi", "cc": for the deaf and hard of hearing ("sdh" alone isn't a language).
+            if let last = parts.last, hearingImpairedMarks.contains(last.lowercased()) {
+                parts.removeLast()
+            }
             switch parts.count {
             case 0:
-                return (name, nil, true)
+                return (name, nil, isForced) // "Movie.forced.srt", "Movie.sdh.srt"
             case 1 where isLanguageTag(parts[0]):
                 return (name, parts[0], isForced)
             default:
@@ -81,6 +85,8 @@ public enum SidecarSubtitles {
             }
         }
     }
+
+    static let hearingImpairedMarks: Set = ["sdh", "hi", "cc"]
 
     /// `en`, `eng`, `pt-BR`, `zh-Hant`: 2–3 letters, optionally a dash and 2–4 letters or digits.
     static func isLanguageTag(_ text: String) -> Bool {

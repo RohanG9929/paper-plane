@@ -44,6 +44,16 @@ struct TrackNamesTests {
     @Test func repeatedNamesGetNumbers() {
         #expect(TrackNames.unique(["English", "French", "English", "English"])
                 == ["English", "French", "English 2", "English 3"])
+        // A number never lands on a name another track already has.
+        #expect(TrackNames.unique(["English", "English", "English 2"]) == ["English", "English 3", "English 2"])
+    }
+
+    /// Names go into the playlist's quoted NAME, which can't hold a double quote or a line break;
+    /// they're matched back by that NAME, so they must already be what the playlist says.
+    @Test func namesHaveNoQuotesOrLineBreaks() {
+        let option = SubtitleOption(source: .embedded(TrackRef(index: 2)), language: "en",
+                                    title: "Commentary \"Director\"\nPart 2", isForced: false, isText: true)
+        #expect(option.displayName == "English — Commentary 'Director' Part 2")
     }
 
     @Test func optionsListEmbeddedTracksThenSidecars() {

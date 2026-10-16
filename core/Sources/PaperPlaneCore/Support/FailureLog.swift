@@ -17,7 +17,13 @@ public enum FailureLog {
                             date: Date = .now) -> URL? {
         let stamp = date.formatted(.iso8601.year().month().day().dateSeparator(.dash).time(includingFractionalSeconds: false)
             .timeSeparator(.omitted).timeZone(separator: .omitted))
-        let file = folder.appendingPathComponent("Paper Plane \(stamp).log")
+        // Two failures in one second get two logs.
+        var file = folder.appendingPathComponent("Paper Plane \(stamp).log")
+        var number = 1
+        while FileManager.default.fileExists(atPath: file.path) {
+            number += 1
+            file = folder.appendingPathComponent("Paper Plane \(stamp) \(number).log")
+        }
         let text = """
             Paper Plane failure log, \(date.formatted(.iso8601))
             Shown: \(message)

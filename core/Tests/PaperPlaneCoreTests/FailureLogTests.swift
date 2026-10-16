@@ -19,6 +19,17 @@ struct FailureLogTests {
         #expect(!text.contains(NSHomeDirectory()))
     }
 
+    @Test func twoFailuresInOneSecondKeepBothLogs() throws {
+        let folder = try TestSupport.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let date = Date(timeIntervalSince1970: 0)
+        let first = try #require(FailureLog.save(message: "first", error: CancellationError(), in: folder, date: date))
+        let second = try #require(FailureLog.save(message: "second", error: CancellationError(), in: folder, date: date))
+        #expect(first != second)
+        #expect(try String(contentsOf: first, encoding: .utf8).contains("Shown: first"))
+        #expect(try String(contentsOf: second, encoding: .utf8).contains("Shown: second"))
+    }
+
     @Test func keepsTheLastTen() throws {
         let folder = try TestSupport.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: folder) }

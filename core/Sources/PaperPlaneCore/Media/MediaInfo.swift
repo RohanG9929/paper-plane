@@ -78,6 +78,8 @@ public struct VideoTrack: Equatable, Sendable {
     /// ffprobe's `pix_fmt`, e.g. `yuv420p` or `yuv420p10le`.
     public var pixelFormat: String?
     public var hdr: HDRFormat?
+    /// Frames per second, from ffprobe's `avg_frame_rate` (or `r_frame_rate`). nil when unknown.
+    public var frameRate: Double? = nil
 }
 
 public struct AudioTrack: Equatable, Sendable {

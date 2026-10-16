@@ -9,11 +9,14 @@ public enum ConversionPlanner {
     ) throws -> ConversionPlan {
         guard let video = media.video.first else { throw PlanError.noVideoTrack }
         let audio = try pickAudio(media.audio, choice: choice.audio)
+        let action = videoAction(for: video, profile: profile)
         return ConversionPlan(
             video: video.ref,
-            videoAction: videoAction(for: video, profile: profile),
+            videoAction: action,
             audio: audio?.ref,
-            audioAction: audio.map { audioAction(for: $0, profile: profile) })
+            audioAction: audio.map { audioAction(for: $0, profile: profile) },
+            videoRange: videoRange(of: video, after: action),
+            frameRate: video.frameRate)
     }
 
     // MARK: - Video
@@ -38,6 +41,13 @@ public enum ConversionPlanner {
             keepHDR: keepHDR,
             toneMapToSDR: needsToneMap,
             bitrate: bitrate(height: track.height, encoder: encoder)))
+    }
+
+    static func videoRange(of track: VideoTrack, after action: VideoAction) -> VideoRange {
+        switch action {
+        case .copy: VideoRange(track.hdr)
+        case .encode(let encode): VideoRange(encode.keepHDR)
+        }
     }
 
     static func bitrate(height: Int, encoder: VideoEncoder) -> Int {

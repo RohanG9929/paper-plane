@@ -25,6 +25,18 @@ struct FFprobeParserTests {
     }
     """
 
+    @Test func readsFrameRates() throws {
+        let json = """
+            {"streams": [
+              {"index": 0, "codec_type": "video", "codec_name": "h264", "avg_frame_rate": "24000/1001", "r_frame_rate": "24/1"},
+              {"index": 1, "codec_type": "video", "codec_name": "h264", "avg_frame_rate": "0/0", "r_frame_rate": "25/1"},
+              {"index": 2, "codec_type": "video", "codec_name": "h264", "avg_frame_rate": "0/0", "r_frame_rate": "0/0"}
+            ]}
+            """
+        let rates = try FFprobeParser.parse(Data(json.utf8)).video.map(\.frameRate)
+        #expect(rates == [24000.0 / 1001, 25, nil])
+    }
+
     @Test func parsesTracksAndSkipsCoverArt() throws {
         let info = try FFprobeParser.parse(Data(Self.movieJSON.utf8))
         #expect(info.duration == 5423.104)

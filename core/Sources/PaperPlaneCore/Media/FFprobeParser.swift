@@ -21,6 +21,8 @@ enum FFprobeParser {
             var pixFmt: String?
             var channels: Int?
             var colorTransfer: String?
+            var avgFrameRate: String?
+            var rFrameRate: String?
             var disposition: [String: Int]?
             var tags: [String: String]?
 
@@ -30,6 +32,8 @@ enum FFprobeParser {
                 case codecName = "codec_name"
                 case pixFmt = "pix_fmt"
                 case colorTransfer = "color_transfer"
+                case avgFrameRate = "avg_frame_rate"
+                case rFrameRate = "r_frame_rate"
             }
 
             /// Tag lookup that ignores case (MKV files sometimes use `LANGUAGE`).
@@ -69,7 +73,8 @@ enum FFprobeParser {
                     width: stream.width ?? 0,
                     height: stream.height ?? 0,
                     pixelFormat: stream.pixFmt,
-                    hdr: HDRFormat(colorTransfer: stream.colorTransfer)))
+                    hdr: HDRFormat(colorTransfer: stream.colorTransfer),
+                    frameRate: frameRate(stream.avgFrameRate) ?? frameRate(stream.rFrameRate)))
             case "audio":
                 info.audio.append(AudioTrack(
                     ref: ref,
@@ -97,6 +102,15 @@ enum FFprobeParser {
     private static func duration(_ text: String?) -> Double? {
         guard let text, let value = Double(text), value.isFinite, value > 0 else { return nil }
         return value
+    }
+
+    /// ffprobe writes rates as fractions: `24000/1001`, or `0/0` when it doesn't know.
+    private static func frameRate(_ fraction: String?) -> Double? {
+        guard let parts = fraction?.split(separator: "/"), parts.count == 2,
+              let numerator = Double(parts[0]), let denominator = Double(parts[1]),
+              numerator > 0, denominator > 0
+        else { return nil }
+        return numerator / denominator
     }
 
     private static func language(_ code: String?) -> String? {

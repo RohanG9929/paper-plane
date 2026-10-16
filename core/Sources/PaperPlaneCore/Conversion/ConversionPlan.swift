@@ -52,6 +52,21 @@ public enum AudioAction: Equatable, Sendable {
     case aacStereo
 }
 
+/// The brightness range of the output video, for the HLS master playlist's `VIDEO-RANGE`.
+public enum VideoRange: String, Equatable, Sendable {
+    case sdr = "SDR"
+    case pq = "PQ"
+    case hlg = "HLG"
+
+    init(_ hdr: HDRFormat?) {
+        switch hdr {
+        case .pq: self = .pq
+        case .hlg: self = .hlg
+        case nil: self = .sdr
+        }
+    }
+}
+
 /// Exactly what to do with each stream for one playback.
 public struct ConversionPlan: Equatable, Sendable {
     public var video: TrackRef
@@ -59,6 +74,10 @@ public struct ConversionPlan: Equatable, Sendable {
     /// nil when the source has no audio.
     public var audio: TrackRef?
     public var audioAction: AudioAction?
+    /// What the converted video is: HDR stays HDR unless it's tone-mapped.
+    public var videoRange: VideoRange = .sdr
+    /// The video's frames per second, which conversion keeps. nil when unknown.
+    public var frameRate: Double? = nil
 }
 
 public enum PlanError: Error, Equatable {

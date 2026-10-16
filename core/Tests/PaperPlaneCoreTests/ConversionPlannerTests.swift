@@ -73,6 +73,21 @@ struct ConversionPlannerTests {
             == .encode(VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: true, bitrate: 8_000_000)))
     }
 
+    @Test func videoRangeFollowsWhatTheTVGets() throws {
+        let hdr10 = Self.video(.hevc, height: 2160, pixelFormat: "yuv420p10le", hdr: .pq)
+        let hlg = Self.video(.other("av1"), height: 2160, pixelFormat: "yuv420p10le", hdr: .hlg)
+        #expect(try ConversionPlanner.plan(Self.media([hdr10], []), profile: Self.surroundAndHDR).videoRange == .pq)
+        #expect(try ConversionPlanner.plan(Self.media([hlg], []), profile: Self.surroundAndHDR).videoRange == .hlg)
+        #expect(try ConversionPlanner.plan(Self.media([hdr10], []), profile: Self.noSurroundNoHDR).videoRange == .sdr)
+        #expect(try ConversionPlanner.plan(Self.media([Self.video(.h264)], [])).videoRange == .sdr)
+    }
+
+    @Test func keepsTheFrameRateForTheMasterPlaylist() throws {
+        var track = Self.video(.other("vp9"))
+        track.frameRate = 50
+        #expect(try ConversionPlanner.plan(Self.media([track], [])).frameRate == 50)
+    }
+
     @Test func noVideoTrackThrows() {
         #expect(throws: PlanError.noVideoTrack) {
             try ConversionPlanner.plan(Self.media([], [Self.audio(.aac)]))

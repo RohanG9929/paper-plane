@@ -46,6 +46,7 @@ public enum FailureLog {
         let text = switch error {
         case TranscodeError.ffmpegFailed(let status, let message): "ffmpeg stopped (status \(status)):\n\(message)"
         case MediaProbeError.ffprobeFailed(let status, let message): "ffprobe stopped (status \(status)):\n\(message)"
+        case YtDlpFailure.failed(let reason, let log): "yt-dlp stopped: \(reason ?? "no reason given")\n\(log)"
         default: String(describing: error)
         }
         return Redaction.redact(text).replacingOccurrences(of: NSHomeDirectory(), with: "~")

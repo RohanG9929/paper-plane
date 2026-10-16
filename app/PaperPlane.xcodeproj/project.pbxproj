@@ -107,7 +107,7 @@
 				5050504C0000000000000012 /* Frameworks */,
 				5050504C0000000000000013 /* Resources */,
 				5050504C000000000000020C /* Embed Helper */,
-				5050504C0000000000000014 /* Embed ffmpeg */,
+				5050504C0000000000000014 /* Embed ffmpeg and yt-dlp */,
 			);
 			buildRules = (
 			);
@@ -192,7 +192,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		5050504C0000000000000014 /* Embed ffmpeg */ = {
+		5050504C0000000000000014 /* Embed ffmpeg and yt-dlp */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -202,14 +202,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Embed ffmpeg";
+			name = "Embed ffmpeg and yt-dlp";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"$SRCROOT/../scripts/embed-ffmpeg.sh\"\n";
+			shellScript = "\"$SRCROOT/../scripts/embed-tools.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

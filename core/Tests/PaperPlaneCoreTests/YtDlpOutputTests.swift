@@ -161,6 +161,15 @@ struct YtDlpOutputTests {
         #expect(YtDlpFailure.from(stderr: Data()) == .failed(reason: nil))
     }
 
+    /// Two failures are the same when their reasons are: the log beside a reason isn't compared.
+    @Test func failuresAreTheSameWhenTheirReasonsAre() {
+        #expect(YtDlpFailure.failed(reason: "Private video.", log: "one") == .failed(reason: "Private video.", log: "two"))
+        #expect(YtDlpFailure.failed(reason: "Private video.") != .failed(reason: "Video unavailable."))
+        #expect(YtDlpFailure.failed(reason: nil) != .failed(reason: "Private video."))
+        #expect(YtDlpFailure.failed(reason: nil) != .timedOut)
+        #expect(YtDlpFailure.missing != .unsupported)
+    }
+
     @Test func unsupportedURLIsNamedAsSuch() {
         #expect(YtDlpFailure.from(stderr: Data("ERROR: Unsupported URL: https://example.com/".utf8)) == .unsupported)
         #expect(YtDlpFailure.from(stderr: Data("ERROR: [youtube] x: Requested format is not available. Use --list-formats for a list of available formats".utf8))

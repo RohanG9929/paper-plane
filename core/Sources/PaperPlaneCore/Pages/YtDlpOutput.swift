@@ -20,15 +20,28 @@ public enum YtDlpFailure: Error, Equatable, Sendable {
     case unsupported
     /// Only formats ffmpeg can't read (DASH, RTMP, …).
     case noPlayableFormat
-    /// yt-dlp's own reason, the first sentence of its last error; nil when it gave none.
-    case failed(reason: String?)
+    /// yt-dlp's own reason, the first sentence of its last error (nil when it gave none), and its
+    /// last words, redacted, for the failure log. Two failures are the same if their reasons are.
+    case failed(reason: String?, log: String = "")
     /// The site took longer than the time limit.
     case timedOut
+
+    public static func == (lhs: YtDlpFailure, rhs: YtDlpFailure) -> Bool {
+        switch (lhs, rhs) {
+        case (.missing, .missing), (.unsupported, .unsupported), (.noPlayableFormat, .noPlayableFormat), (.timedOut, .timedOut):
+            true
+        case let (.failed(left, _), .failed(right, _)):
+            left == right
+        default:
+            false
+        }
+    }
 
     /// Reads yt-dlp's stderr after it failed.
     static func from(stderr: Data) -> YtDlpFailure {
         let lines = String(decoding: stderr, as: UTF8.self).split(whereSeparator: \.isNewline)
-        guard let error = lines.last(where: { $0.hasPrefix("ERROR:") }) else { return .failed(reason: nil) }
+        let log = Redaction.summary(of: stderr)
+        guard let error = lines.last(where: { $0.hasPrefix("ERROR:") }) else { return .failed(reason: nil, log: log) }
         var message = error.dropFirst("ERROR:".count).trimmingCharacters(in: .whitespaces)
         if message.contains("Unsupported URL") {
             return .unsupported
@@ -47,7 +60,7 @@ public enum YtDlpFailure: Error, Equatable, Sendable {
         if message.count > 200 {
             message = String(message.prefix(200)) + "…"
         }
-        return .failed(reason: message.isEmpty ? nil : message)
+        return .failed(reason: message.isEmpty ? nil : message, log: log)
     }
 }
 

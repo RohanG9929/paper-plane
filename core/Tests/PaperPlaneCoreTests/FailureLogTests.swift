@@ -19,6 +19,20 @@ struct FailureLogTests {
         #expect(!text.contains(NSHomeDirectory()))
     }
 
+    /// yt-dlp's last words go in the log for a bug report, redacted like ffmpeg's (Milestone 4,
+    /// decision 13); the remote shows only its reason.
+    @Test func ytDlpFailuresAreLoggedRedacted() throws {
+        let stderr = "WARNING: [youtube] n challenge solving failed\nERROR: [youtube] x: Private video. See https://x.test/v?token=abc\n"
+            + "\(NSHomeDirectory())/Library/Caches/Paper Plane/yt-dlp"
+        let failure = YtDlpFailure.from(stderr: Data(stderr.utf8))
+        #expect(failure == .failed(reason: "Private video."))
+        let details = FailureLog.details(for: failure)
+        #expect(details.hasPrefix("yt-dlp stopped: Private video.\n"))
+        #expect(details.contains("WARNING: [youtube] n challenge solving failed"))
+        #expect(!details.contains("token=abc"))
+        #expect(!details.contains(NSHomeDirectory()))
+    }
+
     @Test func twoFailuresInOneSecondKeepBothLogs() throws {
         let folder = try TestSupport.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: folder) }

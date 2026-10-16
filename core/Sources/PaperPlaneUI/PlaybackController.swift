@@ -48,6 +48,12 @@ public final class PlaybackController {
         public var freeSpace: @Sendable () -> Int64?
         /// Saves a failure's details for a bug report and says where.
         public var saveLog: @Sendable (String, any Error) -> URL?
+        /// Asks yt-dlp for a page's video: the page, the site's cookie, a title until it names one.
+        public var resolvePage: @Sendable (URL, String?, String) async throws -> ResolvedPage
+        /// Updates yt-dlp now; whether a newer copy was installed.
+        public var updateYtDlp: @Sendable () async throws -> Bool
+        /// Updates yt-dlp if a day has passed since the last check.
+        public var updateYtDlpIfDue: @Sendable () async -> Bool
 
         public init(
             tools: @escaping @Sendable () -> ToolPaths?, host: @escaping @Sendable () -> String?,
@@ -66,7 +72,12 @@ public final class PlaybackController {
                 await Thumbnail.jpeg(tools: tools, input: .init(url: url), at: Thumbnail.moment(duration: duration))
             },
             freeSpace: (@Sendable () -> Int64?)? = nil,
-            saveLog: @escaping @Sendable (String, any Error) -> URL? = { FailureLog.save(message: $0, error: $1) }
+            saveLog: @escaping @Sendable (String, any Error) -> URL? = { FailureLog.save(message: $0, error: $1) },
+            resolvePage: @escaping @Sendable (URL, String?, String) async throws -> ResolvedPage = { _, _, _ in
+                throw YtDlpFailure.missing
+            },
+            updateYtDlp: @escaping @Sendable () async throws -> Bool = { false },
+            updateYtDlpIfDue: @escaping @Sendable () async -> Bool = { false }
         ) {
             self.tools = tools
             self.host = host
@@ -78,18 +89,32 @@ public final class PlaybackController {
             self.thumbnail = thumbnail
             self.freeSpace = freeSpace ?? { DiskSpace.available(at: folders.root) }
             self.saveLog = saveLog
+            self.resolvePage = resolvePage
+            self.updateYtDlp = updateYtDlp
+            self.updateYtDlpIfDue = updateYtDlpIfDue
         }
 
-        /// The app's own: the ffmpeg in its bundle and the Mac's LAN address. Only a development
-        /// build (`fallsBackToInstalledFFmpeg`) may use an ffmpeg from PATH or Homebrew instead:
-        /// a release must never run whatever happens to be installed under that name.
-        public static func live(bundleURL: URL, fallsBackToInstalledFFmpeg: Bool,
+        /// The app's own: the ffmpeg and yt-dlp in its bundle and the Mac's LAN address. Only a
+        /// development build (`fallsBackToInstalledFFmpeg`) may use an ffmpeg or yt-dlp from PATH or
+        /// Homebrew instead: a release must never run whatever happens to be installed under that
+        /// name. yt-dlp updates itself from GitHub unless `updatesYtDlp` is off.
+        public static func live(bundleURL: URL, fallsBackToInstalledFFmpeg: Bool, updatesYtDlp: Bool,
                                 settings: @escaping @Sendable () -> PlaybackSettings) -> Environment {
-            Environment(tools: {
-                            ToolPaths.inBundle(at: bundleURL) ?? (fallsBackToInstalledFFmpeg ? ToolPaths.locate() : nil)
-                        },
-                        host: { LANAddress.current() },
-                        settings: settings)
+            let copies = YtDlpCopies.standard(bundle: bundleURL, fallsBackToInstalled: fallsBackToInstalledFFmpeg)
+            let updater = YtDlpUpdater.standard(copies: copies)
+            let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Paper Plane/yt-dlp", isDirectory: true)
+            return Environment(
+                tools: { ToolPaths.inBundle(at: bundleURL) ?? (fallsBackToInstalledFFmpeg ? ToolPaths.locate() : nil) },
+                host: { LANAddress.current() },
+                settings: settings,
+                resolvePage: { page, cookie, title in
+                    guard let copy = copies.current() else { throw YtDlpFailure.missing }
+                    return try await YtDlp.resolve(page: page, cookie: cookie, executable: copy.executable,
+                                                   cacheFolder: cache, fallbackTitle: title)
+                },
+                updateYtDlp: { updatesYtDlp ? try await updater.update() : false },
+                updateYtDlpIfDue: { updatesYtDlp ? await updater.updateIfDue() : false })
         }
     }
 
@@ -129,6 +154,8 @@ public final class PlaybackController {
     }
     /// ffmpeg's only way to the web for the current video (security review, Plan 4).
     @ObservationIgnored var proxy: WebProxy?
+    /// Where the current video came from, which says what to do when the site stops it.
+    @ObservationIgnored var origin = VideoOrigin.file
     /// How far the conversion has got, in movie time.
     public internal(set) var convertedEnd: Double?
     public private(set) var artwork: NSImage?
@@ -238,43 +265,77 @@ public final class PlaybackController {
 
     // MARK: - Commands
 
-    /// Plays the first video among `urls`, replacing whatever is playing. With no video among
-    /// them, what's playing carries on and a notice says why nothing happened.
+    /// Plays the first video among `urls`, else the first web link (dragged from a browser),
+    /// replacing whatever is playing. With neither among them, what's playing carries on and a
+    /// notice says why nothing happened.
     public func play(_ urls: [URL]) {
         dismissWelcome()
-        guard let url = VideoFiles.videos(in: urls).first else {
-            if let first = urls.first {
-                show(notice: "“\(first.lastPathComponent)” isn't a video file.")
-            }
+        if let url = VideoFiles.videos(in: urls).first {
+            begin(.file(url), from: .file, at: 0)
+        } else if let link = urls.lazy.filter({ !$0.isFileURL }).compactMap({ Links.webLink(in: $0.absoluteString) }).first {
+            playLink(link.absoluteString)
+        } else if let first = urls.first {
+            show(notice: "“\(first.lastPathComponent)” isn't a video file.")
+        }
+    }
+
+    /// Plays a copied link (Milestone 4, decision 11): straight from a playlist or video file, or
+    /// a page through yt-dlp. With no link in `text`, what's playing carries on and a notice says so.
+    public func playLink(_ text: String?) {
+        dismissWelcome()
+        guard let url = Links.webLink(in: text) else {
+            show(notice: "Copy a link to a video first, then choose Play Copied Link.")
             return
         }
-        begin(.file(url), at: 0)
+        if let input = Links.direct(url) {
+            begin(input, from: .link, at: 0)
+        } else {
+            begin(page: url, cookie: nil, title: Links.placeholderTitle(for: url), from: .link, at: nil)
+        }
     }
 
     /// Plays a video sent from the browser (spec §5.3), `startAt` seconds in, and answers once
     /// it's ready for the TV or with why it can't play, so the browser pauses only when Paper
-    /// Plane has it. A page (YouTube) needs yt-dlp, which comes later: it leaves what's playing
-    /// alone.
+    /// Plane has it. A page goes to yt-dlp first, and only YouTube's are taken (Milestone 4,
+    /// decision 10). What can't be played leaves what's playing alone.
     public func play(_ request: PlayRequest) async -> PlayReply {
-        guard let input = request.input else {
-            return .failed("YouTube comes in a later version of Paper Plane.")
-        }
-        if case .stream(_, .dash, _) = request.source {
+        switch request.source {
+        case .stream(_, .dash, _):
             // ffmpeg reads DASH only when built with libxml2, which Paper Plane's isn't yet.
             return .failed("Paper Plane can't play this site's kind of stream (DASH) yet.")
+        case .stream:
+            guard let input = request.input else { return .failed("Paper Plane can't play this.") }
+            return await begin(input, from: .browser, at: request.startAt).value
+        case .page(let url, let headers):
+            guard Links.isYouTubePage(url) else { return .failed("Paper Plane takes only YouTube pages from the browser.") }
+            return await begin(page: url, cookie: headers["Cookie"], title: request.title, from: .browser,
+                               at: request.startAt).value
         }
-        return await begin(input, at: request.startAt).value
     }
 
     /// Replaces whatever is playing with `input`.
     @discardableResult
-    private func begin(_ input: ResolvedInput, at startAt: Double) -> Task<PlayReply, Never> {
+    private func begin(_ input: ResolvedInput, from origin: VideoOrigin, at startAt: Double) -> Task<PlayReply, Never> {
+        replace(title: input.title, from: origin) { await $0.start(input, at: startAt) }
+    }
+
+    /// Replaces whatever is playing with `page`'s video, once yt-dlp has found it. `startAt` is
+    /// where the browser was; for a link, yt-dlp says (YouTube's `t=`).
+    @discardableResult
+    private func begin(page: URL, cookie: String?, title: String, from origin: VideoOrigin,
+                       at startAt: Double?) -> Task<PlayReply, Never> {
+        replace(title: title, from: origin) { await $0.start(page: page, cookie: cookie, title: title, at: startAt) }
+    }
+
+    private func replace(title: String, from origin: VideoOrigin,
+                         _ start: @escaping @MainActor (PlaybackController) async -> PlayReply) -> Task<PlayReply, Never> {
         dismissWelcome()
         dismissNotice()
         stop()
-        title = input.title
+        self.title = title
+        self.origin = origin
         phase = .preparing
-        let task = Task { await start(input, at: startAt) }
+        let task = Task { await start(self) }
         starting = task
         return task
     }
@@ -439,10 +500,44 @@ public final class PlaybackController {
             // this controller's business, and acting on it would stop the newer video.
             guard !Task.isCancelled, !(error is CancellationError) else { return replaced }
             log.error("Couldn't play \(input.title, privacy: .private): \(String(describing: error), privacy: .private)")
-            let message = PlaybackError.message(for: error, fromTheWeb: input.isWeb)
+            let message = PlaybackError.message(for: error, origin: origin)
             fail(message, error: error)
             return .failed(message)
         }
+    }
+
+    /// Asks yt-dlp for `page`'s video, then starts it.
+    private func start(page: URL, cookie: String?, title: String, at startAt: Double?) async -> PlayReply {
+        let resolved: ResolvedPage
+        do {
+            resolved = try await resolve(page, cookie: cookie, title: title)
+            try Task.checkCancellation()
+        } catch {
+            guard !Task.isCancelled, !(error is CancellationError) else { return replaced }
+            log.error("yt-dlp couldn't resolve a page: \(String(describing: error), privacy: .private)")
+            let message = PlaybackError.message(for: error, origin: origin)
+            fail(message, error: error)
+            return .failed(message)
+        }
+        self.title = resolved.input.title
+        return await start(resolved.input, at: startAt ?? resolved.startTime ?? 0)
+    }
+
+    /// yt-dlp, and once more if it failed and an update brought a newer one (spec §6). A site
+    /// too slow to answer won't answer a newer yt-dlp faster.
+    private func resolve(_ page: URL, cookie: String?, title: String) async throws -> ResolvedPage {
+        do {
+            return try await environment.resolvePage(page, cookie, title)
+        } catch let failure as YtDlpFailure where failure != .timedOut {
+            guard (try? await environment.updateYtDlp()) == true else { throw failure }
+            try Task.checkCancellation()
+            return try await environment.resolvePage(page, cookie, title)
+        }
+    }
+
+    /// Updates yt-dlp if a day has passed since the last check (spec §5.3).
+    public func updateYtDlpIfDue() async {
+        _ = await environment.updateYtDlpIfDue()
     }
 
     /// The answer for a start that stop() or a newer video cancelled.
@@ -518,14 +613,14 @@ public final class PlaybackController {
                 if proxy?.siteRefused == true {
                     // ffmpeg skipped what the site refused and stopped there.
                     show(notice: "The site stopped sending this video part-way through. "
-                        + "Reload the page, then click Paper Plane again for the rest.")
+                        + "\(origin.again.capitalizedFirst) for the rest.")
                 } else {
                     convertedEnd = duration ?? convertedEnd
                 }
             case .failed(let message):
                 log.error("ffmpeg failed: \(message, privacy: .private)")
                 let stopped = ConversionStopped(message: message)
-                fail(PlaybackError.message(for: stopped, fromTheWeb: isWeb), error: stopped)
+                fail(PlaybackError.message(for: stopped, origin: origin), error: stopped)
             }
         }
     }
@@ -622,25 +717,59 @@ struct ConversionStopped: Error, CustomStringConvertible {
     var description: String { "ffmpeg stopped part-way through:\n\(message)" }
 }
 
+/// Where a video came from, which says what to do when its site stops it.
+enum VideoOrigin {
+    case file
+    /// Sent from the browser's toolbar button.
+    case browser
+    /// A copied or dropped link.
+    case link
+
+    /// How to get the video again, in a sentence's own words.
+    var again: String {
+        switch self {
+        case .file: "open the video again"
+        case .browser: "reload the page, then click Paper Plane again"
+        case .link: "choose Play Copied Link again"
+        }
+    }
+}
+
+extension String {
+    /// "Reload the page…" from "reload the page…".
+    var capitalizedFirst: String {
+        prefix(1).uppercased() + dropFirst()
+    }
+}
+
 enum PlaybackError: Error {
     case noFFmpeg
     case offline
 
-    /// A site refusing a web stream (spec §6): its link has expired, so the page has to be
-    /// reloaded for a fresh one.
-    static let siteStopped = "The site stopped the stream — reload the page, then click Paper Plane again."
+    /// A site refusing a web stream (spec §6): its link has expired, so the page or the link has
+    /// to be fetched again.
+    static func siteStopped(_ origin: VideoOrigin) -> String {
+        "The site stopped the stream — \(origin.again)."
+    }
 
-    /// A plain-language message for the remote. A video `fromTheWeb` isn't a file to try again.
-    static func message(for error: any Error, fromTheWeb: Bool = false) -> String {
-        switch error {
+    /// A plain-language message for the remote. A video from the web isn't a file to try again.
+    static func message(for error: any Error, origin: VideoOrigin = .file) -> String {
+        let fromTheWeb = origin != .file
+        return switch error {
         case let stopped as ConversionStopped:
-            SiteRefusal.isRefusal(stderr: stopped.message) ? siteStopped : "Converting the video stopped part-way through."
-        case _ where SiteRefusal.isRefusal(error): siteStopped
+            SiteRefusal.isRefusal(stderr: stopped.message) ? siteStopped(origin) : "Converting the video stopped part-way through."
+        case _ where SiteRefusal.isRefusal(error): siteStopped(origin)
         case PlaybackError.noFFmpeg: "Paper Plane's video converter is missing. Reinstall Paper Plane."
         case PlaybackError.offline: "Your Mac isn't on a network, so the TV can't reach it. Connect to your network and try again."
+        case YtDlpFailure.missing: "Paper Plane's YouTube helper is missing. Reinstall Paper Plane."
+        case YtDlpFailure.unsupported: "Paper Plane didn't find a video at this link."
+        case YtDlpFailure.noPlayableFormat: "Paper Plane can't play this site's kind of stream yet."
+        case YtDlpFailure.timedOut: "The site took too long to answer. Try again."
+        case YtDlpFailure.failed(let reason?, _): "Paper Plane couldn't get this video: \(reason)"
+        case YtDlpFailure.failed: "Paper Plane couldn't get this video from the page."
         case PlanError.noVideoTrack: fromTheWeb ? "This stream has no video." : "This file has no video."
         case is MediaProbeError where fromTheWeb, is TranscodeError where fromTheWeb:
-            "Paper Plane couldn't get this video from the site. Reload the page, then click Paper Plane again."
+            "Paper Plane couldn't get this video from the site. \(origin.again.capitalizedFirst)."
         case is MediaProbeError: "Paper Plane couldn't read this file. It may be damaged or not a video."
         case is TranscodeError: "Paper Plane couldn't convert this video. Try another file."
         default: "Something went wrong. Try again, or choose another video." // the details are in Show Log

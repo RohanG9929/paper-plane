@@ -91,19 +91,19 @@ struct BrowserPlaybackTests {
     /// A link that expires while the video plays stops ffmpeg part-way through.
     @Test func aSiteThatStopsPartWayThroughIsNamedToo() {
         let refused = ConversionStopped(message: "[https @ 0x1] Server returned 403 Forbidden (access denied)")
-        #expect(PlaybackError.message(for: refused) == Self.refused)
+        #expect(PlaybackError.message(for: refused, origin: .browser) == Self.refused)
         #expect(PlaybackError.message(for: ConversionStopped(message: "Invalid data found when processing input"))
             == "Converting the video stopped part-way through.")
     }
 
-    /// YouTube needs yt-dlp, which comes in Milestone 4 (addendum M3-4); until then a page asks
-    /// nothing of what's playing.
-    @Test func aPageLeavesWhatIsPlayingAlone() async throws {
+    /// Only YouTube pages go to yt-dlp from the browser (Milestone 4, decision 10); another
+    /// page asks nothing of what's playing.
+    @Test func aPageThatIsntYouTubesLeavesWhatIsPlayingAlone() async throws {
         let controller = Self.controller(try PlaybackControllerMediaTests.environment())
         controller.play([UITestMedia.file("h264_aac.mp4")])
         await PlaybackControllerTests.eventually { controller.phase == .waitingForTV }
-        let reply = await controller.play(try Self.request(URL(string: "https://www.youtube.com/watch?v=x")!, kind: "page"))
-        #expect(reply == .failed("YouTube comes in a later version of Paper Plane."))
+        let reply = await controller.play(try Self.request(URL(string: "https://videos.example/watch?v=x")!, kind: "page"))
+        #expect(reply == .failed("Paper Plane takes only YouTube pages from the browser."))
         #expect(controller.phase == .waitingForTV)
         #expect(controller.title == "h264_aac")
         await controller.shutDown()

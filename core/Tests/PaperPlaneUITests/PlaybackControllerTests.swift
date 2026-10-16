@@ -140,12 +140,21 @@ struct PlaybackControllerTests {
     @Test func onlyADevelopmentBuildFallsBackToAnInstalledFFmpeg() {
         let bundleWithoutFFmpeg = FileManager.default.temporaryDirectory.appendingPathComponent("NoHelpers-\(UUID()).app")
         let release = PlaybackController.Environment.live(bundleURL: bundleWithoutFFmpeg, fallsBackToInstalledFFmpeg: false,
-                                                          settings: { PlaybackSettings() })
+                                                          updatesYtDlp: false, settings: { PlaybackSettings() })
         #expect(release.tools() == nil)
         let development = PlaybackController.Environment.live(bundleURL: bundleWithoutFFmpeg,
-                                                              fallsBackToInstalledFFmpeg: true,
+                                                              fallsBackToInstalledFFmpeg: true, updatesYtDlp: false,
                                                               settings: { PlaybackSettings() })
         #expect(development.tools() == ToolPaths.locate())
+    }
+
+    /// With updates off (the check scripts), a check never reaches GitHub.
+    @Test func ytDlpUpdatesCanBeTurnedOff() async throws {
+        let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("NoHelpers-\(UUID()).app")
+        let environment = PlaybackController.Environment.live(bundleURL: bundle, fallsBackToInstalledFFmpeg: false,
+                                                              updatesYtDlp: false, settings: { PlaybackSettings() })
+        #expect(try await environment.updateYtDlp() == false)
+        #expect(await environment.updateYtDlpIfDue() == false)
     }
 
     @Test func openingAVideoRemembersTheWelcomeWasSeen() {

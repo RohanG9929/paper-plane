@@ -6,12 +6,20 @@ import os
 /// kept for error messages.
 final class BackgroundProcess: @unchecked Sendable {
     private struct State {
+        /// Set the moment the process exits. No signal is sent after this: its ID may be reused.
+        var terminationStatus: Int32?
+        var stderrClosed = false
+        /// Published once the process has exited and its stderr has been read to the end, so
+        /// an error written just before exiting is never cut off.
         var exitStatus: Int32?
         var exitWaiters: [CheckedContinuation<Int32, Never>] = []
         var stderrTail = Data()
     }
 
     private static let stderrLimit = 64 * 1024
+    /// How long to wait for stderr to close after the exit. A child the process left behind
+    /// can hold it open indefinitely.
+    private static let stderrGrace = DispatchTimeInterval.seconds(1)
     private let process = Process()
     private let state = OSAllocatedUnfairLock(initialState: State())
 
@@ -27,6 +35,8 @@ final class BackgroundProcess: @unchecked Sendable {
             let chunk = handle.availableData
             guard !chunk.isEmpty else {
                 handle.readabilityHandler = nil
+                state.withLock { $0.stderrClosed = true }
+                Self.publishExit(state)
                 return
             }
             state.withLock { state in
@@ -40,14 +50,29 @@ final class BackgroundProcess: @unchecked Sendable {
         // deadlocks on the main thread.
         process.terminationHandler = { finished in
             let status = finished.terminationStatus
-            let waiters = state.withLock { state in
-                state.exitStatus = status
-                defer { state.exitWaiters = [] }
-                return state.exitWaiters
+            state.withLock { $0.terminationStatus = status }
+            Self.publishExit(state)
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.stderrGrace) {
+                Self.publishExit(state, evenIfStderrIsOpen: true)
             }
-            waiters.forEach { $0.resume(returning: status) }
         }
         try process.run()
+    }
+
+    /// Publishes the exit to `exitStatus` and the waiters once, when the process has exited
+    /// and stderr has closed.
+    private static func publishExit(_ state: OSAllocatedUnfairLock<State>, evenIfStderrIsOpen: Bool = false) {
+        let (status, waiters) = state.withLock { state -> (Int32?, [CheckedContinuation<Int32, Never>]) in
+            guard state.exitStatus == nil, let status = state.terminationStatus,
+                  state.stderrClosed || evenIfStderrIsOpen
+            else { return (nil, []) }
+            state.exitStatus = status
+            defer { state.exitWaiters = [] }
+            return (status, state.exitWaiters)
+        }
+        if let status {
+            waiters.forEach { $0.resume(returning: status) }
+        }
     }
 
     /// nil while the process is running.
@@ -78,7 +103,7 @@ final class BackgroundProcess: @unchecked Sendable {
     /// recycled process ID never gets it.
     func send(_ signal: Int32) {
         state.withLock { state in
-            if state.exitStatus == nil {
+            if state.terminationStatus == nil {
                 kill(process.processIdentifier, signal)
             }
         }

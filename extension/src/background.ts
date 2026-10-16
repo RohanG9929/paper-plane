@@ -4,18 +4,26 @@ import { classify } from "./classify";
 import { failureText, hostName, pageMessage, startTime, streamMessage } from "./message";
 import { navigated, newTab, observe, pickHeaders, withVideos, type TabState } from "./tabs";
 import { videosFrom } from "./videos";
-import { button, plan, rows, type PopupState, type Target } from "./view";
+import { button, plan, popupState, type SendResult, type Target } from "./view";
 
 const filter: chrome.webRequest.RequestFilter = {
   urls: ["<all_urls>"],
   types: ["main_frame", "xmlhttprequest", "media", "other"],
 };
 
-/** Each request's kept headers, by request ID, only until its response shows whether it's video. */
-const pending = new Map<string, Record<string, string>>();
+type RawHeaders = chrome.webRequest.HttpHeader[] | undefined;
+/** Each request's headers, by request ID, only until its response shows whether it's video. */
+const pending = new Map<string, RawHeaders>();
 const maximumPending = 500;
 /** Tabs with a send under way. */
 const sending = new Set<number>();
+/** The button each tab was last given, so an unchanged one isn't set again. */
+const shown = new Map<number, string>();
+
+const icons = {
+  idle: { 16: "icons/idle-16.png", 32: "icons/idle-32.png", 48: "icons/idle-48.png", 128: "icons/idle-128.png" },
+  ready: { 16: "icons/icon-16.png", 32: "icons/icon-32.png", 48: "icons/icon-48.png", 128: "icons/icon-128.png" },
+};
 
 // MARK: - Tab state, one change at a time per tab
 
@@ -30,19 +38,26 @@ async function load(tabId: number): Promise<TabState> {
   return (stored[storageKey(tabId)] as TabState | undefined) ?? newTab();
 }
 
-function update(tabId: number, change: (tab: TabState) => TabState): Promise<TabState> {
+/** Applies `change`, saving only what changed, and returns the state after it. */
+function update(tabId: number, change: (tab: TabState) => TabState): Promise<{ tab: TabState; changed: boolean }> {
   const next = (changes.get(tabId) ?? Promise.resolve()).then(async () => {
-    const tab = change(await load(tabId));
-    await chrome.storage.session.set({ [storageKey(tabId)]: tab });
-    return tab;
+    const before = await load(tabId);
+    const tab = change(before);
+    if (tab !== before) {
+      await chrome.storage.session.set({ [storageKey(tabId)]: tab });
+    }
+    return { tab, changed: tab !== before };
   });
   changes.set(tabId, next.catch(() => undefined));
   return next;
 }
 
-function icons(kind: "idle" | "ready"): Record<number, string> {
-  const name = kind === "idle" ? "idle" : "icon";
-  return Object.fromEntries([16, 32, 48, 128].map((size) => [size, `icons/${name}-${size}.png`]));
+/** Updates a tab's state and, if it changed, its button. Failures (say, storage full) are
+ *  dropped: the next event tries again. */
+function change(tabId: number, transform: (tab: TabState) => TabState): void {
+  update(tabId, transform)
+    .then(({ tab, changed }) => changed ? refresh(tabId, tab) : undefined)
+    .catch(() => undefined);
 }
 
 /** Sets the tab's button from what's known about it. */
@@ -53,12 +68,17 @@ async function refresh(tabId: number, known?: TabState): Promise<void> {
   }
   const tab = known ?? await load(tabId);
   const view = button(tab, plan(tab, page.url, Date.now()), sending.has(tabId));
+  const summary = JSON.stringify(view);
+  if (shown.get(tabId) === summary) {
+    return;
+  }
+  shown.set(tabId, summary);
   await Promise.all([
-    chrome.action.setIcon({ tabId, path: icons(view.icon) }),
+    chrome.action.setIcon({ tabId, path: icons[view.icon] }),
     chrome.action.setBadgeText({ tabId, text: view.badge }),
     chrome.action.setPopup({ tabId, popup: view.popup ? "popup.html" : "" }),
     chrome.action.setTitle({ tabId, title: view.title }),
-  ]).catch(() => undefined);
+  ]).catch(() => shown.delete(tabId));
 }
 
 // MARK: - Watching requests
@@ -67,19 +87,24 @@ chrome.webRequest.onSendHeaders.addListener((details) => {
   if (details.tabId < 0) {
     return;
   }
-  const headers = pickHeaders(details.requestHeaders);
   if (details.type === "main_frame") {
-    void update(details.tabId, () => navigated(details.url, headers)).then((tab) => refresh(details.tabId, tab));
+    // A page loading in the tab itself, not one prerendered in the background.
+    const lifecycle = (details as { documentLifecycle?: string }).documentLifecycle;
+    if (lifecycle === "prerender") {
+      return;
+    }
+    shown.delete(details.tabId); // Chrome resets the button for a new page
+    change(details.tabId, () => navigated(details.url, pickHeaders(details.requestHeaders)));
     return;
   }
   if (pending.size >= maximumPending) {
     pending.delete(pending.keys().next().value!);
   }
-  pending.set(details.requestId, headers);
+  pending.set(details.requestId, details.requestHeaders);
 }, filter, ["requestHeaders", "extraHeaders"]);
 
 chrome.webRequest.onHeadersReceived.addListener((details) => {
-  const headers = pending.get(details.requestId) ?? {};
+  const headers = pending.get(details.requestId);
   pending.delete(details.requestId);
   if (details.tabId < 0 || details.type === "main_frame") {
     return;
@@ -90,9 +115,9 @@ chrome.webRequest.onHeadersReceived.addListener((details) => {
   }
   const response = {
     url: details.url, frameId: details.frameId, type: details.type, timeStamp: details.timeStamp,
-    statusCode: details.statusCode, contentType, headers,
+    statusCode: details.statusCode, contentType, headers: pickHeaders(headers),
   };
-  void update(details.tabId, (tab) => observe(tab, response)).then((tab) => refresh(details.tabId, tab));
+  change(details.tabId, (tab) => observe(tab, response));
 }, filter, ["responseHeaders"]);
 
 chrome.webRequest.onErrorOccurred.addListener((details) => {
@@ -101,6 +126,7 @@ chrome.webRequest.onErrorOccurred.addListener((details) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   changes.delete(tabId);
+  shown.delete(tabId);
   void chrome.storage.session.remove(storageKey(tabId));
 });
 
@@ -118,16 +144,16 @@ async function currentTime(tabId: number, frameId: number, tab: TabState): Promi
 }
 
 /** Sends `target` to Paper Plane; once it has the video, pauses the tab's videos (spec §5.1). */
-async function send(tabId: number, target: Target): Promise<{ ok: true } | { error: string }> {
+async function send(tabId: number, target: Target): Promise<SendResult> {
   if (sending.has(tabId)) {
     return { error: "Already sending this tab's video." };
   }
   sending.add(tabId);
-  await update(tabId, ({ error: _, ...tab }) => tab);
-  await refresh(tabId);
-  let result: { ok: true } | { error: string };
+  let result: SendResult;
   try {
-    const [tab, page] = await Promise.all([load(tabId), chrome.tabs.get(tabId)]);
+    const { tab } = await update(tabId, ({ error: _, ...rest }) => rest);
+    void refresh(tabId, tab);
+    const page = await chrome.tabs.get(tabId);
     const info = { url: page.url ?? "", title: page.title ?? "" };
     const frameId = target.kind === "stream" ? target.candidate.frameId : 0;
     const startAt = await currentTime(tabId, frameId, tab);
@@ -143,12 +169,13 @@ async function send(tabId: number, target: Target): Promise<{ ok: true } | { err
     }
   } catch (failure) {
     result = { error: failureText(failure) };
+  } finally {
+    sending.delete(tabId);
   }
   if ("error" in result) {
     const error = result.error;
-    await update(tabId, (tab) => ({ ...tab, error }));
+    await update(tabId, (tab) => ({ ...tab, error })).catch(() => undefined);
   }
-  sending.delete(tabId);
   await refresh(tabId);
   return result;
 }
@@ -164,6 +191,7 @@ chrome.action.onClicked.addListener(async (page) => {
     return;
   }
   // What was found changed since the button was set: show the choices instead.
+  shown.delete(page.id);
   await refresh(page.id, tab);
   await chrome.action.openPopup().catch(() => undefined);
 });
@@ -178,15 +206,7 @@ async function answerPopup(message: Record<string, unknown>): Promise<unknown> {
   const [tab, page] = await Promise.all([load(tabId), chrome.tabs.get(tabId)]);
   const current = plan(tab, page.url, Date.now());
   if (message.type === "state") {
-    const offered = current.kind === "choose" ? current.ranked
-      : current.kind === "send" && current.target.kind === "stream" ? [current.target.candidate] : [];
-    const state: PopupState = {
-      plan: current.kind,
-      youtube: current.kind === "send" && current.target.kind === "page",
-      rows: rows(offered, tab.videos),
-      ...(tab.error ? { error: tab.error } : {}),
-    };
-    return state;
+    return popupState(tab, current);
   }
   if (message.type === "send") {
     const candidate = typeof message.key === "string"
@@ -212,13 +232,16 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
   const tabId = sender.tab?.id;
   if (tabId !== undefined && sender.frameId !== undefined && request.type === "videos") {
     const frameId = sender.frameId;
-    void update(tabId, (tab) => withVideos(tab, frameId, videosFrom(request.videos))).then((tab) => refresh(tabId, tab));
+    change(tabId, (tab) => withVideos(tab, frameId, videosFrom(request.videos)));
   }
   return false;
 });
 
-// Pages open before the extension was installed or updated get the content script too.
-chrome.runtime.onInstalled.addListener(async () => {
+// Pages already open when the extension is installed or updated get the content script too.
+chrome.runtime.onInstalled.addListener(async (details) => {
+  if (details.reason !== "install" && details.reason !== "update") {
+    return;
+  }
   const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
   for (const tab of tabs) {
     if (tab.id !== undefined) {

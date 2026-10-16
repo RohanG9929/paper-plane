@@ -32,11 +32,8 @@ describe("StreamDetector", () => {
     expect(choice.kind === "one" && choice.candidate.format).toBe("progressive");
   });
 
-  it("finds DASH, with its segments counting as activity", () => {
-    const choice = chosen(aDashSite);
-    expect(choice.kind === "one" && choice.candidate.format).toBe("dash");
-    const tab = replay(aDashSite.responses, aDashSite.videos);
-    expect(tab.candidates).toHaveLength(1);
+  it("doesn't offer DASH, which Paper Plane's ffmpeg can't read yet", () => {
+    expect(chosen(aDashSite)).toEqual({ kind: "none" });
   });
 
   it("asks when two players are equally likely", () => {

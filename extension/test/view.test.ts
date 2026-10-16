@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { newTab } from "../src/tabs";
-import { button, plan, rows } from "../src/view";
+import { button, plan, popupState, rows } from "../src/view";
 import { newsSiteWithAnAd, replay, twoPlayers } from "./fixtures";
 
 describe("the toolbar button", () => {
@@ -43,8 +43,19 @@ describe("the popup's choices", () => {
     const ranked = plan(tab, "https://www.news.example/story", newsSiteWithAnAd.now);
     expect(ranked.kind).toBe("send");
     expect(rows(tab.candidates.filter((c) => !c.variantOf), tab.videos)).toEqual([
-      { key: "https://ads.example/creative/preroll-15s.mp4", label: "Video file · ads.example", detail: "0:15" },
-      { key: "https://video.news.example/hls/story/master.m3u8", label: "HLS stream · video.news.example", detail: "Playing · 3:04" },
+      { key: "https://ads.example/creative/preroll-15s.mp4", label: "Video file · ads.example",
+        detail: "preroll-15s.mp4 · 0:15" },
+      { key: "https://video.news.example/hls/story/master.m3u8", label: "HLS stream · video.news.example",
+        detail: "master.m3u8 · Playing · 3:04" },
     ]);
+  });
+
+  it("offer a YouTube video as itself", () => {
+    const youtube = plan(newTab(), "https://www.youtube.com/watch?v=abc", 0);
+    expect(popupState(newTab(), youtube)).toEqual({
+      plan: "send", rows: [{ label: "This YouTube video", detail: "Sent as its page" }],
+    });
+    const failed = { ...newTab(), error: "Couldn't reach Paper Plane. Try again." };
+    expect(popupState(failed, { kind: "none" })).toEqual({ plan: "none", rows: [], error: "Couldn't reach Paper Plane. Try again." });
   });
 });

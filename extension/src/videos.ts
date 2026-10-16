@@ -13,10 +13,11 @@ export interface VideoElement {
   duration: number;
 }
 
-const maximumVideos = 20;
+export const maximumVideos = 20;
 const maximumSource = 2048;
 
-function seconds(value: unknown): number {
+/** Seconds that mean something: finite and positive, else 0. */
+export function seconds(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
@@ -27,6 +28,11 @@ export function describeVideo(video: VideoElement): Video {
     currentTime: seconds(video.currentTime),
     duration: seconds(video.duration),
   };
+}
+
+/** The one the user is watching: the playing one, else the first. */
+export function primaryVideo<V extends Pick<Video, "playing">>(videos: V[]): V | undefined {
+  return videos.find((video) => video.playing) ?? videos[0];
 }
 
 /** What a content script sent, kept only if it has the right shape, within limits. */

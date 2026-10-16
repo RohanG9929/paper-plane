@@ -4,7 +4,7 @@ import { failureText, isYouTubeVideo, pageMessage, startTime, streamMessage, tid
 
 const candidate: Candidate = {
   key: "https://cdn.example/v/master.m3u8", url: "https://cdn.example/v/master.m3u8?token=abc", format: "hls", frameId: 3,
-  headers: { Cookie: "a=1", Referer: "https://site.example/watch" }, firstSeen: 0, lastSeen: 0, isMaster: true,
+  headers: { Cookie: "a=1", Referer: "https://site.example/watch" }, firstSeen: 0, lastSeen: 0,
 };
 
 describe("messages to Paper Plane", () => {
@@ -61,10 +61,13 @@ describe("messages to Paper Plane", () => {
   it("explain failures in plain words", () => {
     expect(failureText(new Error("Specified native messaging host not found.")))
       .toBe("Paper Plane isn't set up for this browser yet. Open Paper Plane once, then try again.");
+    // The app was moved or deleted since it registered the helper.
+    expect(failureText(new Error("Failed to start native messaging host.")))
+      .toBe("Paper Plane isn't set up for this browser yet. Open Paper Plane once, then try again.");
     expect(failureText(new Error("Error when communicating with the native messaging host.")))
       .toBe("Couldn't reach Paper Plane. Try again.");
-    expect(failureText({ ok: false, error: "The site stopped the stream — click Paper Plane in your browser again." }))
-      .toBe("The site stopped the stream — click Paper Plane in your browser again.");
+    expect(failureText({ ok: false, error: "The site stopped the stream — reload the page, then click Paper Plane again." }))
+      .toBe("The site stopped the stream — reload the page, then click Paper Plane again.");
     expect(failureText(undefined)).toBe("Couldn't reach Paper Plane. Try again.");
   });
 });

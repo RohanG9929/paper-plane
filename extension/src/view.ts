@@ -1,6 +1,6 @@
 // What the toolbar button and its popup show (spec §5.1): grey with nothing found, a click to
 // send when one video is the clear choice, a count and a chooser when it isn't.
-import { choose, type Candidate, type FrameVideo } from "./detector";
+import { choose, videosOf, type Candidate, type FrameVideo } from "./detector";
 import { isYouTubeVideo } from "./message";
 import type { TabState } from "./tabs";
 
@@ -20,19 +20,21 @@ export interface ButtonView {
 }
 
 export interface Row {
-  key: string;
+  /** The stream's key; none for what the button would send (a YouTube page). */
+  key?: string;
   label: string;
   detail: string;
 }
 
-/** What the popup asks the service worker for when it opens. */
+/** What the popup shows: why sending failed, if it did, and the choices. */
 export interface PopupState {
   plan: Plan["kind"];
-  /** A YouTube page, sent as the page. */
-  youtube: boolean;
   error?: string;
   rows: Row[];
 }
+
+/** The worker's answer to the popup's request to send. */
+export type SendResult = { ok: true } | { error: string };
 
 export function plan(tab: TabState, pageUrl: string | undefined, now: number): Plan {
   if (pageUrl && isYouTubeVideo(pageUrl)) {
@@ -61,14 +63,27 @@ export function button(tab: TabState, plan: Plan, sending: boolean): ButtonView 
   }
 }
 
+export function popupState(tab: TabState, plan: Plan): PopupState {
+  let offered: Row[] = [];
+  if (plan.kind === "choose") {
+    offered = rows(plan.ranked, tab.videos);
+  } else if (plan.kind === "send") {
+    offered = plan.target.kind === "page"
+      ? [{ label: "This YouTube video", detail: "Sent as its page" }]
+      : rows([plan.target.candidate], tab.videos);
+  }
+  return { plan: plan.kind, rows: offered, ...(tab.error ? { error: tab.error } : {}) };
+}
+
 const formatNames = { hls: "HLS stream", dash: "DASH stream", progressive: "Video file" } as const;
 
-/** The popup's choices: what each is, where it's from, and whether it's playing and how long. */
+/** The popup's choices: what each is, where it's from, its file's name, and whether it's
+ *  playing and how long. */
 export function rows(candidates: Candidate[], videos: FrameVideo[]): Row[] {
   return candidates.map((candidate) => {
-    const own = videos.filter((video) => video.src.startsWith("http") && video.src.split(/[?#]/)[0] === candidate.key);
-    const related = own.length > 0 ? own : videos.filter((video) => candidate.frameId < 0 || video.frameId === candidate.frameId);
-    const parts: string[] = [];
+    const url = new URL(candidate.url);
+    const related = videosOf(candidate, videos);
+    const parts = [url.pathname.slice(url.pathname.lastIndexOf("/") + 1) || url.hostname];
     if (related.some((video) => video.playing)) {
       parts.push("Playing");
     }
@@ -76,11 +91,7 @@ export function rows(candidates: Candidate[], videos: FrameVideo[]): Row[] {
     if (duration > 0) {
       parts.push(clock(duration));
     }
-    return {
-      key: candidate.key,
-      label: `${formatNames[candidate.format]} · ${new URL(candidate.url).hostname}`,
-      detail: parts.join(" · ") || "Found on this page",
-    };
+    return { key: candidate.key, label: `${formatNames[candidate.format]} · ${url.hostname}`, detail: parts.join(" · ") };
   });
 }
 

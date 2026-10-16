@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { maximumCandidates, navigated, newTab, observe, pickHeaders, withVideos } from "../src/tabs";
-import { replay, seen } from "./fixtures";
+import { replay, seen, segments } from "./fixtures";
 
 describe("tab state", () => {
   it("keeps only the headers a site needs to hand over the video", () => {
@@ -53,11 +53,49 @@ describe("tab state", () => {
     expect(tab.candidates[0]?.headers).toEqual({ Cookie: "cdn=1" });
   });
 
-  it("keeps the newest candidates when there are too many", () => {
-    const tab = replay(Array.from({ length: maximumCandidates + 5 }, (_, index) =>
-      seen(`https://cdn${index}.example/v.mp4`, index * 1000, { type: "media", contentType: "video/mp4" })));
+  it("keeps the most recently active candidates when there are too many", () => {
+    const film = [seen("https://film.example/v/master.m3u8", 0), ...segments("https://film.example/v/s", 500, 40)];
+    const ads = Array.from({ length: maximumCandidates + 5 }, (_, index) =>
+      seen(`https://cdn${index}.example/ad.mp4`, 1000 + index * 1000, { type: "media", contentType: "video/mp4" }));
+    const tab = replay([...film.slice(0, 2), ...ads, ...film.slice(2)].sort((a, b) => a.timeStamp - b.timeStamp));
     expect(tab.candidates).toHaveLength(maximumCandidates);
-    expect(tab.candidates.some((c) => c.url === "https://cdn0.example/v.mp4")).toBe(false);
+    expect(tab.candidates.some((c) => c.url === "https://film.example/v/master.m3u8")).toBe(true); // it's playing
+  });
+
+  it("links a variant fetched long after its master (a change of quality) by its folder", () => {
+    const tab = replay([
+      seen("https://cdn.example/hls/film/master.m3u8", 0),
+      seen("https://cdn.example/hls/film/360p/index.m3u8", 200),
+      seen("https://cdn.example/hls/film/1080p/index.m3u8", 60000),
+      seen("https://cdn.example/hls/other/master.m3u8", 61000),
+    ]);
+    expect(tab.candidates.filter((c) => c.variantOf === undefined).map((c) => c.url)).toEqual([
+      "https://cdn.example/hls/film/master.m3u8",
+      "https://cdn.example/hls/other/master.m3u8", // another video's: a folder of its own
+    ]);
+  });
+
+  it("counts a stream's own .mp4 pieces as segments, even fetched by the video element (native HLS)", () => {
+    const tab = replay([
+      seen("https://cdn.example/v/master.m3u8", 0, { type: "media" }),
+      seen("https://cdn.example/v/seg_001.mp4", 500, { type: "media", contentType: "video/mp4" }),
+      seen("https://cdn.example/v/seg_002.mp4", 9000, { type: "media", contentType: "video/mp4" }),
+    ]);
+    expect(tab.candidates.map((c) => c.url)).toEqual(["https://cdn.example/v/master.m3u8"]);
+    expect(tab.candidates[0]?.lastActivity).toBe(9000);
+  });
+
+  it("doesn't offer DASH, which Paper Plane's ffmpeg can't read yet", () => {
+    expect(replay([seen("https://dash.example/v/manifest.mpd", 0, { contentType: "application/dash+xml" })]).candidates).toEqual([]);
+  });
+
+  it("leaves the state as it was when nothing changed, so nothing is saved or redrawn", () => {
+    const tab = replay([seen("https://cdn.example/v/index.m3u8", 0), seen("https://cdn.example/v/s1.ts", 1000)]);
+    expect(observe(tab, seen("https://elsewhere.example/x.ts", 1500))).toBe(tab); // nobody's segment
+    expect(observe(tab, seen("https://cdn.example/v/s2.ts", 3000))).toBe(tab); // active a moment ago
+    expect(observe(tab, seen("https://cdn.example/v/s3.ts", 7000))).not.toBe(tab);
+    const playing = withVideos(tab, 1, [{ src: "a", playing: true, currentTime: 1, duration: 10 }]);
+    expect(withVideos(playing, 1, [{ src: "a", playing: true, currentTime: 5, duration: 10 }])).toBe(playing);
   });
 
   it("replaces one frame's videos and leaves the others", () => {
@@ -70,6 +108,8 @@ describe("tab state", () => {
   it("forgets everything on a new page, and keeps a YouTube page's cookie for later", () => {
     const youtube = navigated("https://www.youtube.com/watch?v=abc", { Cookie: "SID=1", Referer: "https://google.com/", "User-Agent": "UA" });
     expect(youtube).toEqual({ candidates: [], videos: [], pageHeaders: { Cookie: "SID=1", "User-Agent": "UA" } });
+    // YouTube's home page too: its videos open without loading a new page.
+    expect(navigated("https://www.youtube.com/", { Cookie: "SID=1" }).pageHeaders).toEqual({ Cookie: "SID=1" });
     expect(navigated("https://news.example/story", { Cookie: "x=1" })).toEqual({ candidates: [], videos: [] });
   });
 

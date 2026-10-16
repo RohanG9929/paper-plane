@@ -2,11 +2,14 @@ import Testing
 @testable import PaperPlaneUI
 
 struct StatusMenuTests {
-    static let always = ["Open Video…", "Show Paper Plane Window", "-", "Settings…", "-", "Quit Paper Plane"]
+    static let always = ["Open Video…", "Play Copied Link", "Show Paper Plane Window", "-", "Settings…", "-",
+                         "Quit Paper Plane"]
 
     @Test func withNothingPlayingItOffersToOpenSomething() {
-        #expect(StatusMenu.items(for: RemoteState()).map(\.title) == Self.always)
-        #expect(StatusMenu.items(for: RemoteState()).map(\.key) == ["o", "1", "", ",", "", "q"])
+        let items = StatusMenu.items(for: RemoteState())
+        #expect(items.map(\.title) == Self.always)
+        #expect(items.map(\.key) == ["o", "v", "1", "", ",", "", "q"])
+        #expect(items[1].command == .playCopiedLink)
     }
 
     @Test func whatIsPlayingComesFirstWithItsTracks() {

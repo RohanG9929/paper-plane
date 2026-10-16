@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import PaperPlaneCore
 import PaperPlaneUI
 
 /// The menu bar icon (spec §1): its menu, built fresh each time it opens, and videos dropped on
@@ -22,7 +23,7 @@ final class StatusItem: NSObject, NSMenuDelegate, NSWindowDelegate {
         menu.delegate = self
         item.menu = menu
         // The status bar window passes drags on to its delegate.
-        item.button?.window?.registerForDraggedTypes([.fileURL])
+        item.button?.window?.registerForDraggedTypes([.fileURL, .URL]) // files, and links from a browser
         item.button?.window?.delegate = self
         followIcon()
     }
@@ -64,19 +65,20 @@ final class StatusItem: NSObject, NSMenuDelegate, NSWindowDelegate {
     // MARK: - Drops on the icon
 
     @objc func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        Self.fileURLs(in: sender).isEmpty ? [] : .copy
+        Self.urls(in: sender).isEmpty ? [] : .copy
     }
 
     @objc func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        let urls = Self.fileURLs(in: sender)
+        let urls = Self.urls(in: sender)
         guard !urls.isEmpty else { return false }
         open(urls)
         return true
     }
 
-    private static func fileURLs(in info: any NSDraggingInfo) -> [URL] {
-        info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                            options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    /// Files, and web links dragged from a browser's address bar.
+    private static func urls(in info: any NSDraggingInfo) -> [URL] {
+        let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] ?? []
+        return urls.filter { $0.isFileURL || Links.webLink(in: $0.absoluteString) != nil }
     }
 
     // MARK: - Icon

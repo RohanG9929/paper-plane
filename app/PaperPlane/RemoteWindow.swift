@@ -10,8 +10,10 @@ final class RemoteWindow {
     private let window: NSWindow
 
     init(controller: PlaybackController, openVideo: @escaping @MainActor @Sendable () -> Void,
+         playCopiedLink: @escaping @MainActor @Sendable () -> Void,
          open: @escaping @MainActor @Sendable ([URL]) -> Void) {
-        let root = RemoteWindowContent(controller: controller, openVideo: openVideo, open: open)
+        let root = RemoteWindowContent(controller: controller, openVideo: openVideo, playCopiedLink: playCopiedLink,
+                                       open: open)
         window = NSWindow(contentViewController: NSHostingController(rootView: root))
         window.title = "Paper Plane"
         window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
@@ -31,6 +33,7 @@ final class RemoteWindow {
 struct RemoteWindowContent: View {
     let controller: PlaybackController
     let openVideo: @MainActor @Sendable () -> Void
+    let playCopiedLink: @MainActor @Sendable () -> Void
     let open: @MainActor @Sendable ([URL]) -> Void
 
     var body: some View {
@@ -39,6 +42,7 @@ struct RemoteWindowContent: View {
             artwork: controller.artwork.map { Image(nsImage: $0) },
             actions: RemoteActions(
                 openVideo: openVideo,
+                playCopiedLink: playCopiedLink,
                 drop: { urls in
                     // Anything is taken: a file that isn't a video gets a notice saying so.
                     guard !urls.isEmpty else { return false }

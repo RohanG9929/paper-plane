@@ -3,7 +3,7 @@
 public enum StatusMenu {
     public struct Item: Equatable, Sendable {
         public enum Command: Equatable, Sendable {
-            case togglePlay, stop, openVideo, showRemote, settings, quit
+            case togglePlay, stop, openVideo, playCopiedLink, showRemote, settings, quit
             case selectAudio(String)
             /// nil turns subtitles off.
             case selectSubtitle(String?)
@@ -57,6 +57,7 @@ public enum StatusMenu {
         }
         items += [
             Item("Open Video…", .openVideo, key: "o"),
+            Item("Play Copied Link", .playCopiedLink, key: "v"),
             Item("Show Paper Plane Window", .showRemote, key: "1"),
             .separator,
             Item("Settings…", .settings, key: ","),

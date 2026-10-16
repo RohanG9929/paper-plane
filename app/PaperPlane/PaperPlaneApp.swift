@@ -23,6 +23,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         /// Automated checks launch with `-PaperPlaneInstallsBrowserHosts NO`, leaving the
         /// browsers' folders alone.
         static let installsBrowserHosts = "PaperPlaneInstallsBrowserHosts"
+        /// And with `-PaperPlaneUpdatesYtDlp NO`, which keeps them off GitHub.
+        static let updatesYtDlp = "PaperPlaneUpdatesYtDlp"
+    }
+
+    /// Whether yt-dlp keeps itself up to date (spec §5.3): yes, unless the defaults say no.
+    private static var updatesYtDlp: Bool {
+        UserDefaults.standard.register(defaults: [Key.updatesYtDlp: true])
+        return UserDefaults.standard.bool(forKey: Key.updatesYtDlp)
     }
 
     #if DEBUG
@@ -34,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsStore()
     let controller = PlaybackController(
         environment: .live(bundleURL: Bundle.main.bundleURL, fallsBackToInstalledFFmpeg: isDevelopmentBuild,
+                           updatesYtDlp: updatesYtDlp,
                            settings: { SettingsStore.settings(from: .standard) }),
         showsWelcome: !UserDefaults.standard.bool(forKey: Key.welcomeShown),
         welcomeSeen: { UserDefaults.standard.set(true, forKey: Key.welcomeShown) },
@@ -42,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var remote = RemoteWindow(
         controller: controller,
         openVideo: { [weak self] in self?.chooseVideo() },
+        playCopiedLink: { [weak self] in self?.playCopiedLink() },
         open: { [weak self] urls in self?.open(urls) })
     private lazy var settingsWindow = SettingsWindow(store: settings)
     private var statusItem: StatusItem?
@@ -69,6 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installBrowserHosts()
         startBridge()
         remote.show()
+        // At most once a day (spec §5.3), in the background.
+        Task { await controller.updateYtDlpIfDue() }
     }
 
     // MARK: - The browser
@@ -107,14 +119,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A video from the browser: the remote comes forward to choose the TV, as for a file. None
-    /// once quitting has begun, when nothing would wait for its ffmpeg.
+    /// A video from the browser: the remote comes forward to choose the TV, as for a file, unless
+    /// it's one Paper Plane won't play. None once quitting has begun, when nothing would wait for
+    /// its ffmpeg.
     private func play(_ request: PlayRequest) async -> PlayReply {
         guard !quitting else { return .failed("Paper Plane is quitting.") }
-        if request.input != nil {
-            remote.show()
+        switch request.source {
+        case .stream(_, .dash, _): break
+        case .stream: remote.show()
+        case .page(let url, _) where Links.isYouTubePage(url): remote.show()
+        case .page: break
         }
         return await controller.play(request)
+    }
+
+    /// Play Copied Link, and ⌘V in the remote (Edit ▸ Paste, with no text field to take it): a video
+    /// copied in Finder, or a link (Milestone 4, decision 11).
+    func playCopiedLink() {
+        remote.show()
+        let pasteboard = NSPasteboard.general
+        let files = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        if files.isEmpty {
+            controller.playLink(pasteboard.string(forType: .string))
+        } else {
+            controller.play(files)
+        }
+    }
+
+    @objc func paste(_ sender: Any?) {
+        playCopiedLink()
     }
 
     /// Finder's Open With, and files dropped on the app's icon.
@@ -146,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .togglePlay: controller.togglePause()
         case .stop: controller.stop()
         case .openVideo: chooseVideo()
+        case .playCopiedLink: playCopiedLink()
         case .showRemote: remote.show()
         case .settings: settingsWindow.show()
         case .quit: NSApp.terminate(nil)

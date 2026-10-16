@@ -3,6 +3,8 @@ import SwiftUI
 /// What the remote's controls do. The app wires these to its playback controller.
 public struct RemoteActions: Sendable {
     public var openVideo: @MainActor @Sendable () -> Void
+    /// Plays a link (or a video file) from the clipboard.
+    public var playCopiedLink: @MainActor @Sendable () -> Void
     /// Files dropped on the window. Returns whether any of them was taken.
     public var drop: @MainActor @Sendable ([URL]) -> Bool
     public var togglePlay: @MainActor @Sendable () -> Void
@@ -22,6 +24,7 @@ public struct RemoteActions: Sendable {
     public var showLog: @MainActor @Sendable () -> Void
 
     public init(openVideo: @escaping @MainActor @Sendable () -> Void = {},
+                playCopiedLink: @escaping @MainActor @Sendable () -> Void = {},
                 drop: @escaping @MainActor @Sendable ([URL]) -> Bool = { _ in false },
                 togglePlay: @escaping @MainActor @Sendable () -> Void = {},
                 skip: @escaping @MainActor @Sendable (Double) -> Void = { _ in },
@@ -34,6 +37,7 @@ public struct RemoteActions: Sendable {
                 selectSubtitle: @escaping @MainActor @Sendable (String?) -> Void = { _ in },
                 showLog: @escaping @MainActor @Sendable () -> Void = {}) {
         self.openVideo = openVideo
+        self.playCopiedLink = playCopiedLink
         self.drop = drop
         self.togglePlay = togglePlay
         self.skip = skip
@@ -77,7 +81,7 @@ public struct RemoteView<RoutePicker: View>: View {
             if state.showsWelcome {
                 WelcomeView(done: actions.dismissWelcome)
             } else if state.phase == .idle {
-                DropZone(isTargeted: isDropTarget, openVideo: actions.openVideo)
+                DropZone(isTargeted: isDropTarget, openVideo: actions.openVideo, playCopiedLink: actions.playCopiedLink)
             } else {
                 NowPlayingCard(state: state, artwork: artwork, actions: actions, routePicker: routePicker)
             }
@@ -193,6 +197,7 @@ struct WelcomeView: View {
 struct DropZone: View {
     var isTargeted: Bool
     var openVideo: () -> Void
+    var playCopiedLink: () -> Void
 
     var body: some View {
         VStack(spacing: 16) {
@@ -201,15 +206,21 @@ struct DropZone: View {
                 .foregroundStyle(.tint)
                 .accessibilityHidden(true)
             VStack(spacing: 6) {
-                Text("Drop a video here")
+                Text("Drop a video or a link here")
                     .font(.title3.weight(.semibold))
                 Text("It plays on your TV over AirPlay.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            Button("Open Video…", action: openVideo)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            HStack(spacing: 12) {
+                Button("Open Video…", action: openVideo)
+                    .buttonStyle(.borderedProminent)
+                // ⌘V comes from Edit ▸ Paste, which the app handles the same way.
+                Button("Play Copied Link", action: playCopiedLink)
+                    .buttonStyle(.bordered)
+                    .help("Plays a link you've copied: YouTube, most video sites, or a video file's address (⌘V)")
+            }
+            .controlSize(.large)
         }
         .padding(.vertical, 40)
         .frame(maxWidth: .infinity)
@@ -222,7 +233,7 @@ struct DropZone: View {
         }
         .padding(20)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Drop a video here to play it on your TV")
+        .accessibilityLabel("Drop a video or a link here to play it on your TV")
     }
 }
 

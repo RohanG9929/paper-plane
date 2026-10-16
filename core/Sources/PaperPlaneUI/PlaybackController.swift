@@ -83,7 +83,8 @@ public final class PlaybackController {
 
     @ObservationIgnored private let environment: Environment
     @ObservationIgnored private let welcomeSeen: @MainActor () -> Void
-    @ObservationIgnored private var pausedWhenTVWentAway = false
+    /// Whether the user paused, as opposed to AVPlayer pausing as the TV dropped out.
+    @ObservationIgnored private var userPaused = false
     @ObservationIgnored private var stream: ServedStream?
     @ObservationIgnored private var starting: Task<Void, Never>?
     /// Finishes once every stream stopped and every start cancelled so far has cleaned up.
@@ -165,10 +166,11 @@ public final class PlaybackController {
 
     public func togglePause() {
         guard phase == .onTV else { return }
-        if isPaused {
-            player.play()
-        } else {
+        userPaused = !isPaused
+        if userPaused {
             player.pause()
+        } else {
+            player.play()
         }
     }
 
@@ -222,6 +224,7 @@ public final class PlaybackController {
         duration = nil
         convertedEnd = nil
         tvWentAway = false
+        userPaused = false
     }
 
     public func dismissWelcome() {
@@ -332,9 +335,9 @@ public final class PlaybackController {
         if active {
             guard phase == .waitingForTV else { return }
             phase = .onTV
-            let resumesPaused = tvWentAway && pausedWhenTVWentAway
+            let resumesPaused = tvWentAway && userPaused
             tvWentAway = false
-            guard !resumesPaused else { return } // it was paused before the TV dropped out
+            guard !resumesPaused else { return } // the user had paused it before the TV dropped out
             player.play()
             if Self.seeksToStartOnTV, movieTime <= (stream?.session.offset ?? 0) + 1 {
                 // Don't wait for the completion handler: over AirPlay it reports finished == false
@@ -343,7 +346,6 @@ public final class PlaybackController {
             }
         } else if phase == .onTV {
             // The TV went away. Never carry on playing on the Mac.
-            pausedWhenTVWentAway = isPaused
             player.pause()
             tvWentAway = true
             phase = .waitingForTV

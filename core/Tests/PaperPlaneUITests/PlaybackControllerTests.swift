@@ -188,6 +188,22 @@ struct PlaybackControllerMediaTests {
         await controller.shutDown()
     }
 
+    /// AVPlayer may pause by itself as the TV drops out, before the controller hears of it.
+    /// That isn't the user pausing, so playback resumes when the TV is back.
+    @Test func aTVThatDropsOutWhilePlayingResumesPlaying() async throws {
+        let controller = try await readyController()
+        controller.externalPlaybackChanged(active: true)
+        await PlaybackControllerTests.eventually { !controller.isPaused }
+        controller.player.pause() // the player, not the user
+        await PlaybackControllerTests.eventually { controller.isPaused }
+
+        controller.externalPlaybackChanged(active: false)
+        controller.externalPlaybackChanged(active: true)
+        await PlaybackControllerTests.eventually { !controller.isPaused }
+        #expect(controller.player.rate > 0)
+        await controller.shutDown()
+    }
+
     /// A stream the Mac's player refuses (here an HDR master playlist with no FRAME-RATE, which
     /// AVFoundation rejects) ends in a plain message instead of waiting for a TV forever.
     @Test func aStreamThePlayerRefusesEndsInAPlainMessage() async throws {

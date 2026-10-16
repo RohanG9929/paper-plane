@@ -44,6 +44,89 @@ struct StreamPipelineTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
     }
 
+    /// A seek outside what's converted starts a new session there (spec §4.2).
+    @Test func startsLaterInTheMovie() async throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pipeline = try pipeline(root)
+        let media = try await pipeline.probe(.file(TestSupport.media("h264_aac.mp4")))
+        let stream = try await pipeline.start(media, at: 6)
+        let duration = try await AVURLAsset(url: stream.url).load(.duration).seconds
+        await stream.stop()
+        #expect(abs(stream.session.offset - 6) < 0.05)
+        #expect(abs(duration - 4) < 1)
+    }
+
+    @Test func switchesTheAudioTrack() async throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pipeline = try pipeline(root)
+        let media = try await pipeline.probe(.file(TestSupport.media("h264_multiaudio.mkv")))
+        #expect(media.info.audio.map(\.displayName) == ["English (Stereo)", "Japanese (5.1)"])
+        let byDefault = try await pipeline.start(media)
+        await byDefault.stop()
+        let english = try await pipeline.start(media, audio: media.info.audio[0].ref)
+        await english.stop()
+        #expect(byDefault.plan.audio == media.info.audio[1].ref) // the file's default
+        #expect(english.plan.audio == media.info.audio[0].ref)
+    }
+
+    /// The file's own subtitles and a sidecar `.srt`, all offered at once.
+    @Test func offersEmbeddedAndSidecarSubtitles() async throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let movies = root.appendingPathComponent("Movies")
+        try FileManager.default.createDirectory(at: movies, withIntermediateDirectories: true)
+        let movie = movies.appendingPathComponent("Movie: Part 1.mkv")
+        try FileManager.default.createSymbolicLink(at: movie, withDestinationURL: TestSupport.media("h264_ac3_51.mkv"))
+        try FileManager.default.copyItem(at: TestSupport.media("sample.srt"),
+                                         to: movies.appendingPathComponent("Movie: Part 1.en.srt"))
+        let pipeline = try pipeline(root.appendingPathComponent("sessions"))
+
+        let media = try await pipeline.probe(.file(movie))
+        #expect(media.subtitles.map(\.id) == ["track-0-2", "file-Movie: Part 1.en.srt"])
+        let subtitles = try await pipeline.extractSubtitles(media)
+        #expect(subtitles.files.count == 2)
+        let stream = try await pipeline.start(media, subtitles: subtitles)
+        let group = try #require(try await AVURLAsset(url: stream.url).loadMediaSelectionGroup(for: .legible))
+        // AVFoundation names options by language; the playlist's NAME is their title.
+        var titles: [String?] = []
+        for option in group.options {
+            let title = AVMetadataItem.metadataItems(from: option.commonMetadata, filteredByIdentifier: .commonIdentifierTitle)
+            titles.append(try await title.first?.load(.stringValue))
+        }
+        await stream.stop()
+        subtitles.remove()
+
+        #expect(stream.subtitleNames == ["track-0-2": "Subtitles", "file-Movie: Part 1.en.srt": "English — Movie: Part 1.en.srt"])
+        #expect(titles == ["Subtitles", "English — Movie: Part 1.en.srt"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("sessions").path).isEmpty)
+    }
+
+    /// Subtitles not converted yet (or that couldn't be) aren't offered: the player would show
+    /// an option that plays nothing.
+    @Test func offersOnlyConvertedSubtitles() async throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pipeline = try pipeline(root)
+        let media = try await pipeline.probe(.file(TestSupport.media("h264_ac3_51.mkv")))
+        let stream = try await pipeline.start(media, subtitles: SubtitleFiles(folder: root, files: [:]))
+        await stream.stop()
+        #expect(media.subtitles.count == 1)
+        #expect(stream.subtitleNames.isEmpty)
+    }
+
+    @Test func burningInTextNeedsItsSubtitlesConverted() async throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pipeline = try pipeline(root)
+        let media = try await pipeline.probe(.file(TestSupport.media("h264_ac3_51.mkv")))
+        await #expect(throws: SubtitleError.notConverted) {
+            try await pipeline.start(media, burnIn: media.subtitles[0], subtitles: nil)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
+    }
+
     @Test func cancellingTheStartLeavesNothingBehind() async throws {
         let root = try TestSupport.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

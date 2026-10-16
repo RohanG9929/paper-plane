@@ -79,13 +79,30 @@ func drawIcon(in context: CGContext, size: CGFloat) {
     context.restoreGState()
 }
 
-func writePNG(size: Int, to url: URL) throws {
+/// `toolbar` draws the tile filling the whole image, as browser toolbar icons are; `grey` drains
+/// its colour and fades it, for the extension's "nothing found" state.
+func writePNG(size: Int, to url: URL, toolbar: Bool = false, grey: Bool = false) throws {
     let colorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
     guard let context = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
     else { throw CocoaError(.fileWriteUnknown) }
     context.interpolationQuality = .high
+    if toolbar {
+        // The 824-point tile (from 100 to 924 on the 1024 grid) scaled to the full image.
+        let scale = 1024.0 / 824.0
+        context.translateBy(x: -100 * CGFloat(size) / 824, y: -100 * CGFloat(size) / 824)
+        context.scaleBy(x: scale, y: scale)
+    }
     drawIcon(in: context, size: CGFloat(size))
+    if grey, let pixels = context.data?.assumingMemoryBound(to: UInt8.self) {
+        for offset in stride(from: 0, to: context.bytesPerRow * size, by: 4) {
+            let luminance = 0.299 * Double(pixels[offset]) + 0.587 * Double(pixels[offset + 1]) + 0.114 * Double(pixels[offset + 2])
+            for channel in 0..<4 { // still premultiplied after fading every channel alike
+                let value = channel == 3 ? Double(pixels[offset + 3]) : luminance
+                pixels[offset + channel] = UInt8(min(255, value * 0.55))
+            }
+        }
+    }
     guard let image = context.makeImage(),
           let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
     else { throw CocoaError(.fileWriteUnknown) }
@@ -93,8 +110,21 @@ func writePNG(size: Int, to url: URL) throws {
     guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
 }
 
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--extension" {
+    // The extension's icons: icon-N.png in colour, idle-N.png grey.
+    let folder = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    for size in [16, 32, 48, 128] {
+        try writePNG(size: size, to: folder.appendingPathComponent("icon-\(size).png"), toolbar: true)
+        try writePNG(size: size, to: folder.appendingPathComponent("idle-\(size).png"), toolbar: true, grey: true)
+    }
+    print("Wrote 8 extension icons to \(folder.path)")
+    exit(0)
+}
+
 guard CommandLine.arguments.count == 2 else {
     print("usage: swift scripts/make-icon.swift <AppIcon.appiconset folder>")
+    print("       swift scripts/make-icon.swift --extension <icons folder>")
     exit(2)
 }
 let folder = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)

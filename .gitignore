@@ -17,6 +17,6 @@ DerivedData/
 /spikes/sony-test/build/
 /spikes/sony-test/streams/
 
-# Browser extension (later plans)
+# Browser extension: its dev tools (npm ci) and its build (npm run build)
 /extension/node_modules/
 /extension/dist/

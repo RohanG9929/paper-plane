@@ -48,6 +48,14 @@ jobs:
           export PAPERPLANE_FFPROBE="$PWD/vendor/ffmpeg/bin/ffprobe"
           scripts/test-core.sh
 
+      - name: Extension tests, types and build
+        working-directory: extension
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npm run typecheck
+          npm run build
+
       - name: Build the app (warnings are errors)
         run: >
           xcodebuild -project app/PaperPlane.xcodeproj -scheme PaperPlane -configuration Release

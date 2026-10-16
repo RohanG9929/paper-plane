@@ -29,24 +29,13 @@ enum TestSupport {
         return url
     }
 
-    /// Whether the installed ffmpeg has a filter, e.g. `zscale` (needed for HDR → SDR tone mapping).
-    static func ffmpegHasFilter(_ name: String) -> Bool {
-        filterList.split(separator: "\n").contains { line in
+    /// Whether the ffmpeg under test has a filter, e.g. `zscale` (needed for HDR → SDR tone mapping).
+    static func ffmpegHasFilter(_ name: String) async -> Bool {
+        guard let tools,
+              let result = try? await ProcessRunner.run(tools.ffmpeg, arguments: ["-hide_banner", "-filters"])
+        else { return false }
+        return String(decoding: result.stdout, as: UTF8.self).split(separator: "\n").contains { line in
             line.split(separator: " ").dropFirst().first == Substring(name)
         }
     }
-
-    private static let filterList: String = {
-        guard let tools else { return "" }
-        let process = Process()
-        process.executableURL = tools.ffmpeg
-        process.arguments = ["-hide_banner", "-filters"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return "" }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return String(decoding: data, as: UTF8.self)
-    }()
 }

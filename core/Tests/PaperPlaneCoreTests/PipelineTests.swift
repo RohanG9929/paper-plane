@@ -34,6 +34,9 @@ struct PipelineTests {
              video: .h264, audio: .aac, channels: 2),
         // The default profile must convert HDR files with the tools Paper Plane actually has.
         Case(file: "hevc_hdr10_aac.mkv", profile: .default, video: .hevc, audio: .aac, channels: 2, hdr: .pq),
+        // With the default profile (surround off), 7.1 lossless audio and DTS both become stereo AAC.
+        Case(file: "h264_flac_71.mkv", profile: .default, video: .h264, audio: .aac, channels: 2),
+        Case(file: "mpeg2_dts_51.mkv", profile: .default, video: .h264, audio: .aac, channels: 2),
     ]
 
     @Test(arguments: cases)
@@ -57,7 +60,7 @@ struct PipelineTests {
         #expect(abs(output.duration - 6) < 1.5)
     }
 
-    @Test(.enabled(if: TestSupport.ffmpegHasFilter("zscale"), "Needs an ffmpeg built with zimg (zscale)"))
+    @Test(.enabled("Needs an ffmpeg built with zimg (zscale)") { await TestSupport.ffmpegHasFilter("zscale") })
     func toneMapsHDRForAnSDRTV() async throws {
         let output = try await convert("hevc_hdr10_aac.mkv", profile: OutputProfile(surround: true, hdr: false), start: 0)
         defer { try? FileManager.default.removeItem(at: output.work) }

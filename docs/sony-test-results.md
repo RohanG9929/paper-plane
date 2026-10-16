@@ -94,3 +94,35 @@ Everything up to the TV was checked on the Mac on 2026-10-15: Open With reaches 
 | P10 | In Finder, Open With → Paper Plane on the five-minute MKV | The remote comes forward; then as P2 and P3 | Needs the owner at the TV |
 | P11 | During playback, turn the TV off, or end AirPlay from Control Center | The remote says "Your TV disconnected. Choose it again to continue". The Mac stays silent. Picking the TV again resumes where it was | Needs the owner at the TV |
 | P12 | Quit from the menu during playback | `pgrep -fl ffmpeg` prints nothing; `ls ~/Library/Caches/Paper\ Plane/sessions/` is empty | Checked on the Mac (no TV needed): clean |
+
+## Plan 3: seeking, tracks and subtitles on the Sony
+
+For these, a 30-minute film with two audio tracks (English 440 Hz, French 660 Hz), an English subtitle track, and a sidecar `.srt` with a line every 30 seconds:
+
+```bash
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1920x1080:rate=24:duration=1800" -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=1800" -f lavfi -i "sine=frequency=660:sample_rate=48000:duration=1800" -i testdata/media/sample.srt -map 0:v -map 1:a -map 2:a -map 3:s -c:v libx264 -preset veryfast -pix_fmt yuv420p -g 48 -c:a aac -b:a 128k -ac 2 -c:s srt -metadata:s:a:0 language=eng -metadata:s:a:1 language=fra -metadata:s:s:0 language=eng ~/Desktop/paperplane-thirty-minutes.mkv
+```
+
+```bash
+python3 -c 'for i in range(60): s = i * 30; print(f"{i + 1}\n00:{s // 60:02}:{s % 60:02},000 --> 00:{s // 60:02}:{s % 60 + 20:02},000\nLine {i + 1}, at {s // 60}:{s % 60:02}\n")' > ~/Desktop/paperplane-thirty-minutes.en.srt
+```
+
+Everything up to the TV was checked on the Mac on 2026-10-16 (the controller's tests play each case through the real pipeline on this Mac). These rows need the owner at the TV.
+
+| # | Check | Expected | Result |
+|---|---|---|---|
+| M1 | Play the 30-minute film on the Sony; drag the scrubber to about 20:00 | The status says "Moving to 20:00…", and within about 3 s the TV plays from there | Needs the owner at the TV |
+| M2 | Then drag back to 0:30 | "Moving to 0:30…", and the TV plays from there | Needs the owner at the TV |
+| M3 | Skip back and forward 10 s a few times | Instant jumps, no "Moving to" | Needs the owner at the TV |
+| M4 | Captions menu (speech bubble beside AirPlay) → Audio → French | "Switching to French (Stereo)…"; the tone goes higher, at the same place in the film | Needs the owner at the TV |
+| M5 | Captions menu → Subtitles → English, then Off | "Paper Plane test subtitle one/two" show at 0:01–0:08 (seek back to 0:00 to see them); Off removes them without "Moving to" | Needs the owner at the TV |
+| M6 | With the sidecar `.srt` beside the film, play it again; choose "English — paperplane-thirty-minutes.en.srt" | "Line N, at m:ss" shows on the TV at the matching time, also after a far seek | Needs the owner at the TV |
+| M7 | Settings… → Always burn in subtitles; choose English subtitles | "Adding subtitles…"; the text is part of the picture (the TV's own subtitle setting can't hide it). Turn the setting off afterwards | Needs the owner at the TV |
+| M8 | A film of your own with Blu-ray (PGS) subtitles: choose them | "Adding subtitles…"; the subtitles are burned in. (No PGS test file can be generated, so this is the only check) | Needs the owner at the TV |
+| M9 | Media keys and Control Center | The play/pause key pauses the TV; Control Center shows the title and artwork and its scrubber seeks | Needs the owner at the TV |
+| M10 | Leave the Mac idle past its sleep time while the TV plays; then pause and wait again | Keeps playing (`pmset -g assertions` lists "Paper Plane is playing a video on your TV"); once paused the Mac may sleep | Needs the owner at the TV |
+| M11 | During playback turn Wi-Fi off and on (or switch networks, with the TV on the same one) | "Reconnecting…", then the TV plays on from where it was | Needs the owner at the TV |
+| M12 | Drag the film onto the paper plane in the menu bar | The remote opens and prepares it | Needs the owner at the Mac |
+| M13 | The menu bar menu during playback | The film's name, Pause, Stop, Audio and Subtitles submenus that switch tracks; Settings… opens Settings | Needs the owner at the Mac |
+| M14 | Drop `testdata/media/corrupt.mkv` | "Paper Plane couldn't read this file…" with Show Log; Show Log reveals a log in `~/Library/Logs/Paper Plane/` without your home folder's path in it | Needs the owner at the Mac |
+| M15 | After the first time the Sony was chosen, play another film | "Choose your TV to start" and the ringed AirPlay button, without the blue explanation box | Needs the owner at the TV |

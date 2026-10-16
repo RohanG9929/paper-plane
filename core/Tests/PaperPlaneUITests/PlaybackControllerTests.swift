@@ -338,6 +338,88 @@ struct PlaybackControllerMediaTests {
         await controller.shutDown()
     }
 
+    /// A Mac whose display can't show HDR refuses an HDR master playlist (-11868), though the TV
+    /// could play it. Whatever the Mac's displays, the video must wait for the TV, ready to play.
+    @Test func anHDRVideoWaitsForTheTVWhateverTheMacsDisplays() async throws {
+        let controller = try await readyController(UITestMedia.file("hevc_hdr10_aac.mkv"))
+        await PlaybackControllerTests.eventually { controller.player.currentItem?.status == .readyToPlay }
+        #expect(controller.player.currentItem?.status == .readyToPlay)
+        #expect(controller.phase == .waitingForTV)
+        await controller.shutDown()
+    }
+
+    /// Only some displays make AVFoundation refuse a master playlist, so these tests hand the
+    /// controller the refusal themselves.
+    static let refusedForTheDisplay = AVError(.noCompatibleAlternatesForExternalDisplay)
+
+    /// The playlist the player has open: "master.m3u8", or "index.m3u8" once the Mac's display
+    /// refused the master.
+    private static func playlist(_ controller: PlaybackController) -> String? {
+        (controller.player.currentItem?.asset as? AVURLAsset)?.url.lastPathComponent
+    }
+
+    /// A master playlist the Mac's display refuses gives way to the media playlist, for the rest
+    /// of the video; the media playlist refused too ends in the plain message. The next video
+    /// starts from its master again.
+    @Test func aMasterPlaylistTheDisplayRefusesGivesWayToTheMediaPlaylist() async throws {
+        let controller = try await readyController()
+        #expect(Self.playlist(controller) == "master.m3u8")
+        controller.playerFailed(try #require(controller.player.currentItem), error: Self.refusedForTheDisplay)
+        #expect(controller.phase == .waitingForTV)
+        #expect(Self.playlist(controller) == "index.m3u8")
+        await PlaybackControllerTests.eventually { controller.player.currentItem?.status == .readyToPlay }
+        #expect(controller.player.currentItem?.status == .readyToPlay)
+
+        controller.externalPlaybackChanged(active: true)
+        controller.restart(at: 6, loading: "Moving to 0:06…")
+        await PlaybackControllerTests.eventually { controller.loading == nil }
+        #expect(abs((controller.stream?.session.offset ?? 0) - 6) < 0.05)
+        #expect(Self.playlist(controller) == "index.m3u8")
+
+        controller.playerFailed(try #require(controller.player.currentItem), error: Self.refusedForTheDisplay)
+        #expect(controller.phase == .failed("Paper Plane couldn't play this video. Try another file."))
+
+        controller.play([UITestMedia.file("h264_aac.mp4")])
+        await PlaybackControllerTests.eventually { controller.phase == .waitingForTV }
+        #expect(Self.playlist(controller) == "master.m3u8")
+        await controller.shutDown()
+    }
+
+    /// The media playlist has no subtitle tracks, so once the player has it, text subtitles are
+    /// drawn into the picture: those chosen afterwards, and forced ones already on.
+    @Test(.enabled("Needs an ffmpeg built with libass, like the bundled one") {
+        await UITestMedia.ffmpegHasFilter("subtitles")
+    })
+    func withTheMediaPlaylistTextSubtitlesAreDrawnIntoThePicture() async throws {
+        let controller = try await readyController(UITestMedia.file("h264_ac3_51.mkv"))
+        controller.playerFailed(try #require(controller.player.currentItem), error: Self.refusedForTheDisplay)
+        controller.externalPlaybackChanged(active: true)
+        controller.selectSubtitle("track-0-2")
+        #expect(controller.remoteState.status == "Adding subtitles…")
+        await PlaybackControllerTests.eventually { controller.loading == nil }
+        #expect(controller.stream?.plan.burnIn == .text)
+        #expect(Self.playlist(controller) == "index.m3u8")
+        await controller.shutDown()
+
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pp-forced-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let movie = folder.appendingPathComponent("Film.mp4")
+        try FileManager.default.createSymbolicLink(at: movie, withDestinationURL: UITestMedia.file("h264_aac.mp4"))
+        try FileManager.default.copyItem(at: UITestMedia.file("sample.srt"),
+                                         to: folder.appendingPathComponent("Film.en.forced.srt"))
+        let forced = try await readyController(movie)
+        #expect(forced.stream?.plan.burnIn == nil) // a subtitle track in the master playlist
+        forced.playerFailed(try #require(forced.player.currentItem), error: Self.refusedForTheDisplay)
+        #expect(forced.loading == "Adding subtitles…")
+        await PlaybackControllerTests.eventually { forced.loading == nil }
+        #expect(forced.stream?.plan.burnIn == .text)
+        #expect(forced.subtitle == "file-Film.en.forced.srt")
+        #expect(forced.phase == .waitingForTV)
+        #expect(Self.playlist(forced) == "index.m3u8")
+        await forced.shutDown()
+    }
+
     /// Quitting straight after Stop must still end ffmpeg and delete the session folder.
     @Test func shutDownWaitsForAStoppedVideo() async throws {
         let environment = try Self.environment()

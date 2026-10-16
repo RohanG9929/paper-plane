@@ -216,6 +216,10 @@ public final class PlaybackController {
     @ObservationIgnored var conversionPaused = false
     @ObservationIgnored var conversionFinished = false
     @ObservationIgnored var warnedAboutSpace = false
+    /// Whether the player opens each session's media playlist instead of its master, for the
+    /// rest of this video: once the Mac's player has refused the master because the Mac's
+    /// display can't show it (HDR, with an SDR monitor as the main display).
+    @ObservationIgnored var opensMediaPlaylist = false
     @ObservationIgnored private var hidingNotice: Task<Void, Never>?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     /// Watch the current item for the player refusing it or stalling for good.
@@ -410,6 +414,7 @@ public final class PlaybackController {
         conversionPaused = false
         conversionFinished = false
         warnedAboutSpace = false
+        opensMediaPlaylist = false
     }
 
     public func dismissWelcome() {
@@ -590,7 +595,13 @@ public final class PlaybackController {
         conversionFinished = false
         watchingEvents?.cancel()
         watchingEvents = Task { await watch(stream.session) }
-        let item = AVPlayerItem(url: stream.url)
+        load(stream)
+    }
+
+    /// Gives the player `stream`'s master playlist, or its media playlist once the Mac's display
+    /// has refused a master.
+    private func load(_ stream: ServedStream) {
+        let item = AVPlayerItem(url: opensMediaPlaylist ? stream.mediaPlaylistURL : stream.url)
         observeItem(item)
         player.replaceCurrentItem(with: item)
         applySubtitleSelection()
@@ -687,19 +698,34 @@ public final class PlaybackController {
         guard let item else { return }
         itemStatus = item.observe(\.status) { [weak self] item, _ in
             guard item.status == .failed else { return }
-            let reason = String(describing: item.error)
-            Task { @MainActor in self?.playerFailed(item, reason: reason) }
+            let error = item.error
+            Task { @MainActor in self?.playerFailed(item, error: error) }
         }
         itemFailure = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main
         ) { [weak self] notification in
-            let reason = String(describing: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey])
-            MainActor.assumeIsolated { self?.playerFailed(item, reason: reason) }
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? any Error
+            MainActor.assumeIsolated { self?.playerFailed(item, error: error) }
         }
     }
 
-    private func playerFailed(_ item: AVPlayerItem, reason: String) {
+    /// The player refused `item` or couldn't play on, for `error`. A master playlist the Mac's
+    /// display refused gives way to the media playlist; anything else ends the video.
+    func playerFailed(_ item: AVPlayerItem, error: (any Error)?) {
         guard player.currentItem === item else { return }
+        if (error as? AVError)?.code == .noCompatibleAlternatesForExternalDisplay, !opensMediaPlaylist, let stream {
+            // AVFoundation judges the master's variants by the Mac's display, which may not show
+            // HDR (-11868), though the TV can. The media playlist leaves it nothing to judge.
+            log.info("The Mac's display refused the master playlist; opening the media playlist")
+            opensMediaPlaylist = true
+            if let shown = subtitle.flatMap(subtitleOption), shown.isText, stream.plan.burnIn == nil {
+                restart(at: nil, loading: "Adding subtitles…") // drawn in: see burnsIn(_:)
+            } else {
+                load(stream)
+            }
+            return
+        }
+        let reason = String(describing: error)
         log.error("The player failed: \(reason, privacy: .private)")
         fail("Paper Plane couldn't play this video. Try another file.", error: PlayerFailed(reason: reason))
     }

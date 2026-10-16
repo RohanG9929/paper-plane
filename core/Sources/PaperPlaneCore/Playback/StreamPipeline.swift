@@ -157,6 +157,12 @@ public final class ServedStream: Sendable {
         server.url(for: MasterPlaylist.fileName)
     }
 
+    /// ffmpeg's media playlist: the same video and audio with no subtitle tracks, and nothing
+    /// for the player to judge against the Mac's display, which may refuse the master's HDR.
+    public var mediaPlaylistURL: URL {
+        server.url(for: HLSFileNames.mediaPlaylist)
+    }
+
     /// Stops serving and converting, and deletes the session folder.
     public func stop() async {
         server.stop()

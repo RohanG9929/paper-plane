@@ -269,17 +269,22 @@ struct TranscoderMediaTests {
     }
 
     /// AVFoundation is stricter about master playlists than media playlists: an HDR variant
-    /// without FRAME-RATE fails, so check the player really accepts SDR and HDR output.
+    /// without FRAME-RATE fails, so check the player really accepts SDR and HDR output. A Mac
+    /// whose display can't show HDR (its main display an SDR monitor, say) refuses an HDR master
+    /// whatever it says (-11868), and the app then opens the media playlist: that must play.
     @Test(arguments: ["h264_aac.mp4", "hevc_hdr10_aac.mkv", "vp9_opus.webm"])
     func applesPlayerAcceptsTheMasterPlaylist(_ file: String) async throws {
         let (session, _) = try await start(file)
         _ = await session.events.first { $0 == .finished }
         let server = try await HLSServer(directory: session.folder)
-        let status = await TestSupport.playerItemStatus(server.url("master.m3u8"))
+        var (status, error) = await TestSupport.playerItem(server.url("master.m3u8"))
+        if (error as? AVError)?.code == .noCompatibleAlternatesForExternalDisplay {
+            (status, error) = await TestSupport.playerItem(server.url("index.m3u8"))
+        }
         let duration = try await AVURLAsset(url: server.url("master.m3u8")).load(.duration).seconds
         server.stop()
         await session.stop()
-        #expect(status == .readyToPlay)
+        #expect(status == .readyToPlay, "\(String(describing: error))")
         #expect(abs(duration - 10) < 1.5)
     }
 }

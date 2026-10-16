@@ -90,6 +90,7 @@ Everything up to the TV was checked on the Mac on 2026-10-15: Open With reaches 
 | P6 | Move the volume slider | Note whether the TV's volume follows (AirPlay may leave volume to the TV) | Needs the owner at the TV |
 | P7 | Stop (■ or ⌘.) | The TV leaves the video. The remote says "Drop a video here" | Needs the owner at the TV |
 | P8 | Drop `testdata/media/hevc_hdr10_aac.mkv`, pick the Sony | Plays (10 s). Note whether the HDR indicator shows | Needs the owner at the TV |
+| P8b | P8 with an SDR monitor as the Mac's main display (on 2026-10-16, the LG with HDR off). The Mac's player refuses the HDR master playlist there (-11868), so Paper Plane opens the media playlist | Plays (10 s) in HDR, as P8. Note whether the HDR indicator differs from P8. Text subtitles, if the film has them, are drawn into the picture | Needs the owner at the TV |
 | P9 | Drop `testdata/media/vp9_opus.webm`, pick the Sony | Plays (re-encoded with VideoToolbox) | Needs the owner at the TV |
 | P10 | In Finder, Open With → Paper Plane on the five-minute MKV | The remote comes forward; then as P2 and P3 | Needs the owner at the TV |
 | P11 | During playback, turn the TV off, or end AirPlay from Control Center | The remote says "Your TV disconnected. Choose it again to continue". The Mac stays silent. Picking the TV again resumes where it was | Needs the owner at the TV |

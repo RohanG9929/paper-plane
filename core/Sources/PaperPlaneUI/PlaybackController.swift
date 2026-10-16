@@ -79,6 +79,8 @@ public final class PlaybackController {
     @ObservationIgnored private var pausedWhenTVWentAway = false
     @ObservationIgnored private var stream: ServedStream?
     @ObservationIgnored private var starting: Task<Void, Never>?
+    /// Finishes once every stream stopped and every start cancelled so far has cleaned up.
+    @ObservationIgnored private var cleanup: Task<Void, Never>?
     @ObservationIgnored private var watchingEvents: Task<Void, Never>?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     /// Watch the current item for the player refusing it or stalling for good.
@@ -179,8 +181,21 @@ public final class PlaybackController {
     }
 
     public func stop() {
+        // A cancelled start cleans up after itself (stopping ffmpeg, deleting its folder); a
+        // stream has to be stopped. Either way shutDown() waits for it.
+        let starting = starting
+        let stream = stream
         starting?.cancel()
-        starting = nil
+        if starting != nil || stream != nil {
+            let earlier = cleanup
+            cleanup = Task {
+                await stream?.stop()
+                await starting?.value
+                await earlier?.value
+            }
+        }
+        self.starting = nil
+        self.stream = nil
         watchingEvents?.cancel()
         watchingEvents = nil
         player.pause()
@@ -190,10 +205,6 @@ public final class PlaybackController {
         }
         itemFailure = nil
         player.replaceCurrentItem(with: nil)
-        if let stream {
-            Task { await stream.stop() }
-        }
-        stream = nil
         title = nil
         detail = ""
         artwork = nil
@@ -209,14 +220,11 @@ public final class PlaybackController {
         welcomeSeen()
     }
 
-    /// Stops ffmpeg and waits for it, before the app quits. A start still in progress is
-    /// cancelled and awaited too: its cleanup stops ffmpeg and deletes its session folder.
+    /// Stops what's playing and waits, before the app quits, until every ffmpeg this controller
+    /// started has exited and every session folder is deleted.
     public func shutDown() async {
-        let stream = stream
-        let starting = starting
         stop()
-        await starting?.value
-        await stream?.stop()
+        await cleanup?.value
     }
 
     // MARK: - Starting

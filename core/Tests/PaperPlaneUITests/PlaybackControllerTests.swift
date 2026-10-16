@@ -176,6 +176,35 @@ struct PlaybackControllerMediaTests {
         await controller.shutDown()
     }
 
+    /// Quitting straight after Stop must still end ffmpeg and delete the session folder.
+    @Test func shutDownWaitsForAStoppedVideo() async throws {
+        let environment = try Self.environment()
+        let controller = PlaybackController(environment: environment, showsWelcome: false, welcomeSeen: {})
+        controller.play([UITestMedia.file("h264_aac.mp4")])
+        await PlaybackControllerTests.eventually { controller.phase != .preparing }
+        try #require(controller.phase == .waitingForTV)
+        controller.stop()
+        await controller.shutDown()
+        #expect(Self.sessionFolders(in: environment).isEmpty)
+    }
+
+    /// Quitting straight after opening a second video over one still being prepared must clean
+    /// up after both.
+    @Test func shutDownWaitsForAReplacedStart() async throws {
+        let environment = try Self.environment()
+        let controller = PlaybackController(environment: environment, showsWelcome: false, welcomeSeen: {})
+        controller.play([UITestMedia.file("h264_aac.mp4")])
+        await PlaybackControllerTests.eventually { !Self.sessionFolders(in: environment).isEmpty }
+        try #require(!Self.sessionFolders(in: environment).isEmpty)
+        controller.play([UITestMedia.file("h264_ac3_51.mkv")])
+        await controller.shutDown()
+        #expect(Self.sessionFolders(in: environment).isEmpty)
+    }
+
+    private static func sessionFolders(in environment: PlaybackController.Environment) -> [String] {
+        (try? FileManager.default.contentsOfDirectory(atPath: environment.folders.root.path)) ?? []
+    }
+
     @Test func seeksStayWithinWhatIsConverted() async throws {
         let controller = try await readyController()
         controller.externalPlaybackChanged(active: true)

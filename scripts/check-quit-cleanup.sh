@@ -5,7 +5,7 @@
 # The app shows its window on screen while this runs (about a minute).
 # Usage: scripts/check-quit-cleanup.sh [path to Paper Plane.app]
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 2
 APP="${1:-$PWD/build/DerivedData/Build/Products/Debug/Paper Plane.app}"
 SESSIONS="$HOME/Library/Caches/Paper Plane/sessions"
 CLIP="${TMPDIR%/}/paperplane-quit-check.mkv"
@@ -17,31 +17,40 @@ if [[ ! -f "$CLIP" ]]; then
 fi
 
 leftovers=0
-for delay in 0.3 0.6 0.9 1.2 1.6 2.0 3.0; do
+launch() {
   open "$APP"
   until pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
   sleep 1
-  open -a "$APP" "$CLIP"
-  sleep "$delay"
-  state="$(find "$SESSIONS" -name master.m3u8 2>/dev/null | grep -q . && echo ready || echo preparing)"
+}
+quit_app() {
   osascript -e 'tell application id "dev.paperplane.app" to quit' >/dev/null
   while pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
+}
+# Quits, then reports (and clears up) any ffmpeg or session folder left behind.
+quit_and_check() {
+  quit_app
   sleep 0.5
   ffmpeg_left="$(pgrep -f 'Helpers/ffmpeg|ffmpeg .*paperplane-quit-check' | wc -l | tr -d ' ')"
   folders_left="$(find "$SESSIONS" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
-  echo "quit after ${delay}s (${state}): ffmpeg left ${ffmpeg_left}, folders left ${folders_left}"
+  echo "$1: ffmpeg left ${ffmpeg_left}, folders left ${folders_left}"
   if [[ "$ffmpeg_left" != 0 || "$folders_left" != 0 ]]; then
     leftovers=1
     pkill -f 'Helpers/ffmpeg|ffmpeg .*paperplane-quit-check'
     rm -rf "$SESSIONS"
   fi
+}
+
+for delay in 0.3 0.6 0.9 1.2 1.6 2.0 3.0; do
+  launch
+  open -a "$APP" "$CLIP"
+  sleep "$delay"
+  state="$(find "$SESSIONS" -name master.m3u8 2>/dev/null | grep -q . && echo ready || echo preparing)"
+  quit_and_check "quit after ${delay}s (${state})"
 done
-# Opening a second video while the first is still being prepared must leave only the second.
 SECOND="$PWD/testdata/media/h264_ac3_51.mkv"
 if [[ -f "$SECOND" ]]; then
-  open "$APP"
-  until pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
-  sleep 1
+  # Opening a second video while the first is still being prepared must leave only the second.
+  launch
   open -a "$APP" "$CLIP"
   sleep 0.4
   open -a "$APP" "$SECOND"
@@ -50,8 +59,17 @@ if [[ -f "$SECOND" ]]; then
   converting="$(pgrep -f 'ffmpeg .*paperplane-quit-check' | wc -l | tr -d ' ')"
   echo "open twice quickly: session folders ${folders}, ffmpeg still on the first video ${converting}"
   [[ "$folders" == 1 && "$converting" == 0 ]] || leftovers=1
-  osascript -e 'tell application id "dev.paperplane.app" to quit' >/dev/null
-  while pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
+  quit_app
+
+  # Quitting straight after the second open must clean up after both.
+  for delay in 0.1 1.0; do
+    launch
+    open -a "$APP" "$CLIP"
+    sleep 1.5
+    open -a "$APP" "$SECOND"
+    sleep "$delay"
+    quit_and_check "open twice, quit after ${delay}s"
+  done
 fi
 
 if ((leftovers)); then

@@ -70,6 +70,10 @@ public final class PlaybackController {
     public private(set) var artwork: NSImage?
     public private(set) var tvWentAway = false
     public private(set) var showsWelcome: Bool
+    /// A passing message, such as "that file isn't a video". Playback carries on underneath.
+    public private(set) var notice: String?
+    /// How long a notice stays up.
+    @ObservationIgnored var noticeDuration = Duration.seconds(6)
     public var volume = 1.0 {
         didSet { player.volume = Float(volume) }
     }
@@ -82,6 +86,7 @@ public final class PlaybackController {
     /// Finishes once every stream stopped and every start cancelled so far has cleaned up.
     @ObservationIgnored private var cleanup: Task<Void, Never>?
     @ObservationIgnored private var watchingEvents: Task<Void, Never>?
+    @ObservationIgnored private var hidingNotice: Task<Void, Never>?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     /// Watch the current item for the player refusing it or stalling for good.
     @ObservationIgnored private var itemStatus: NSKeyValueObservation?
@@ -130,24 +135,25 @@ public final class PlaybackController {
         case .failed(let message): .failed(message)
         }
         return RemoteState(phase: remotePhase, title: title ?? "", detail: detail, elapsed: movieTime,
-                           duration: duration, converted: convertedEnd, volume: volume, showsWelcome: showsWelcome)
+                           duration: duration, converted: convertedEnd, volume: volume, showsWelcome: showsWelcome,
+                           notice: notice)
     }
 
     // MARK: - Commands
 
-    /// Plays the first video among `urls`, replacing whatever is playing.
+    /// Plays the first video among `urls`, replacing whatever is playing. With no video among
+    /// them, what's playing carries on and a notice says why nothing happened.
     public func play(_ urls: [URL]) {
         if showsWelcome {
             dismissWelcome()
         }
         guard let url = VideoFiles.videos(in: urls).first else {
             if let first = urls.first {
-                stop()
-                title = first.lastPathComponent
-                phase = .failed("“\(first.lastPathComponent)” isn't a video file.")
+                show(notice: "“\(first.lastPathComponent)” isn't a video file.")
             }
             return
         }
+        dismissNotice()
         stop()
         title = url.deletingPathExtension().lastPathComponent
         phase = .preparing
@@ -218,6 +224,23 @@ public final class PlaybackController {
     public func dismissWelcome() {
         showsWelcome = false
         welcomeSeen()
+    }
+
+    public func dismissNotice() {
+        hidingNotice?.cancel()
+        hidingNotice = nil
+        notice = nil
+    }
+
+    private func show(notice message: String) {
+        hidingNotice?.cancel()
+        notice = message
+        let duration = noticeDuration
+        hidingNotice = Task { [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
     }
 
     /// Stops what's playing and waits, before the app quits, until every ffmpeg this controller

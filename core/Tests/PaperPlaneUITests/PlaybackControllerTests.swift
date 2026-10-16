@@ -52,12 +52,37 @@ struct PlaybackControllerTests {
         controller.stop()
     }
 
-    @Test func refusesFilesThatAreNotVideos() {
+    /// Dropping a song on the remote by mistake must not stop the video on the TV.
+    @Test func aFileThatIsNotAVideoLeavesPlaybackAloneWithANotice() {
+        let controller = PlaybackController(environment: Self.environment(start: Self.preparesForever),
+                                            showsWelcome: false, welcomeSeen: {})
+        controller.play([URL(fileURLWithPath: "/Movies/a.mkv")])
+        controller.play([URL(fileURLWithPath: "/Music/song.mp3")])
+        #expect(controller.phase == .preparing)
+        #expect(controller.title == "a")
+        #expect(controller.notice == "“song.mp3” isn't a video file.")
+        #expect(controller.remoteState.notice == "“song.mp3” isn't a video file.")
+
+        controller.play([URL(fileURLWithPath: "/Movies/b.mkv")])
+        #expect(controller.notice == nil)
+        controller.stop()
+    }
+
+    @Test func aNoticeCanBeDismissedAndGoesAwayOnItsOwn() async {
         let controller = PlaybackController(environment: Self.environment(start: Self.preparesForever),
                                             showsWelcome: false, welcomeSeen: {})
         controller.play([URL(fileURLWithPath: "/Music/song.mp3")])
-        #expect(controller.phase == .failed("“song.mp3” isn't a video file."))
-        #expect(controller.title == "song.mp3")
+        #expect(controller.phase == .idle)
+        #expect(controller.title == nil)
+        #expect(controller.notice == "“song.mp3” isn't a video file.")
+        controller.dismissNotice()
+        #expect(controller.notice == nil)
+
+        controller.noticeDuration = .milliseconds(100)
+        controller.play([URL(fileURLWithPath: "/Documents/notes.pdf")])
+        #expect(controller.notice == "“notes.pdf” isn't a video file.")
+        await Self.eventually { controller.notice == nil }
+        #expect(controller.notice == nil)
     }
 
     @Test func explainsMissingFFmpegAndNoNetwork() async {

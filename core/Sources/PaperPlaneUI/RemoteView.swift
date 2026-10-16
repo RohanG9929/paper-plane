@@ -13,6 +13,7 @@ public struct RemoteActions: Sendable {
     public var stop: @MainActor @Sendable () -> Void
     public var setVolume: @MainActor @Sendable (Double) -> Void
     public var dismissWelcome: @MainActor @Sendable () -> Void
+    public var dismissNotice: @MainActor @Sendable () -> Void
 
     public init(openVideo: @escaping @MainActor @Sendable () -> Void = {},
                 drop: @escaping @MainActor @Sendable ([URL]) -> Bool = { _ in false },
@@ -21,7 +22,8 @@ public struct RemoteActions: Sendable {
                 seek: @escaping @MainActor @Sendable (Double) -> Void = { _ in },
                 stop: @escaping @MainActor @Sendable () -> Void = {},
                 setVolume: @escaping @MainActor @Sendable (Double) -> Void = { _ in },
-                dismissWelcome: @escaping @MainActor @Sendable () -> Void = {}) {
+                dismissWelcome: @escaping @MainActor @Sendable () -> Void = {},
+                dismissNotice: @escaping @MainActor @Sendable () -> Void = {}) {
         self.openVideo = openVideo
         self.drop = drop
         self.togglePlay = togglePlay
@@ -30,6 +32,7 @@ public struct RemoteActions: Sendable {
         self.stop = stop
         self.setVolume = setVolume
         self.dismissWelcome = dismissWelcome
+        self.dismissNotice = dismissNotice
     }
 }
 
@@ -53,7 +56,11 @@ public struct RemoteView<RoutePicker: View>: View {
     }
 
     public var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            if let notice = state.notice {
+                NoticeBanner(message: notice, dismiss: actions.dismissNotice)
+                    .transition(.opacity)
+            }
             if state.showsWelcome {
                 WelcomeView(done: actions.dismissWelcome)
             } else if state.phase == .idle {
@@ -62,6 +69,7 @@ public struct RemoteView<RoutePicker: View>: View {
                 NowPlayingCard(state: state, artwork: artwork, actions: actions, routePicker: routePicker)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: state.notice)
         .frame(width: Self.width)
         .background(.background)
         .overlay {
@@ -75,6 +83,46 @@ public struct RemoteView<RoutePicker: View>: View {
         .dropDestination(for: URL.self) { urls, _ in
             actions.drop(urls)
         } isTargeted: { isDropTarget = $0 }
+    }
+}
+
+// MARK: - Notice
+
+/// A passing message at the top of the window, such as a dropped file that isn't a video. It
+/// leaves whatever is playing alone.
+struct NoticeBanner: View {
+    var message: String
+    var dismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(message)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Dismiss")
+            .help("Dismiss")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .padding(.vertical, 7)
+        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .onAppear {
+            AccessibilityNotification.Announcement(message).post()
+        }
     }
 }
 

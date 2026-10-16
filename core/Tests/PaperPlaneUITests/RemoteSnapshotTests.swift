@@ -28,6 +28,8 @@ struct RemoteSnapshotTests {
         hdr.detail = "4K · HDR10 · 58 min"
         var failed = movie
         failed.phase = .failed("Paper Plane couldn't read this file. It may be damaged or not a video.")
+        var notice = movie
+        notice.notice = "“Holiday photos.zip” isn't a video file."
         return [
             ("welcome", RemoteState(showsWelcome: true)),
             ("idle", RemoteState()),
@@ -38,6 +40,7 @@ struct RemoteSnapshotTests {
             ("tv-went-away", lost),
             ("long-title-hdr", hdr),
             ("failed", failed),
+            ("notice", notice),
         ]
     }()
 

@@ -30,9 +30,12 @@ public struct RemoteState: Equatable, Sendable {
     public var volume: Double
     /// Shows the one-time explainer instead of the drop zone.
     public var showsWelcome: Bool
+    /// A passing message over whatever is showing, e.g. "“song.mp3” isn't a video file."
+    public var notice: String?
 
     public init(phase: Phase = .idle, title: String = "", detail: String = "", elapsed: Double = 0,
-                duration: Double? = nil, converted: Double? = nil, volume: Double = 1, showsWelcome: Bool = false) {
+                duration: Double? = nil, converted: Double? = nil, volume: Double = 1, showsWelcome: Bool = false,
+                notice: String? = nil) {
         self.phase = phase
         self.title = title
         self.detail = detail
@@ -41,6 +44,7 @@ public struct RemoteState: Equatable, Sendable {
         self.converted = converted
         self.volume = volume
         self.showsWelcome = showsWelcome
+        self.notice = notice
     }
 
     /// Play/pause, skip and seek only mean something once the TV is playing the video.

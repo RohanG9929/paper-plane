@@ -34,15 +34,14 @@ struct RemoteWindowContent: View {
     let open: @MainActor @Sendable ([URL]) -> Void
 
     var body: some View {
-        let controller = controller
-        let open = open
         RemoteView(
             state: controller.remoteState,
             artwork: controller.artwork.map { Image(nsImage: $0) },
             actions: RemoteActions(
                 openVideo: openVideo,
                 drop: { urls in
-                    guard !VideoFiles.videos(in: urls).isEmpty else { return false }
+                    // Anything is taken: a file that isn't a video gets a notice saying so.
+                    guard !urls.isEmpty else { return false }
                     open(urls)
                     return true
                 },
@@ -51,7 +50,8 @@ struct RemoteWindowContent: View {
                 seek: { controller.seek(toMovieTime: $0) },
                 stop: { controller.stop() },
                 setVolume: { controller.volume = $0 },
-                dismissWelcome: { controller.dismissWelcome() })
+                dismissWelcome: { controller.dismissWelcome() },
+                dismissNotice: { controller.dismissNotice() })
         ) {
             RoutePicker(player: controller.player)
         }

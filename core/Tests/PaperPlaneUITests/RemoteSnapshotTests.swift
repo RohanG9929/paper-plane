@@ -30,6 +30,18 @@ struct RemoteSnapshotTests {
         failed.phase = .failed("Paper Plane couldn't read this file. It may be damaged or not a video.")
         var notice = movie
         notice.notice = "“Holiday photos.zip” isn't a video file."
+        var tracks = movie
+        tracks.audioChoices = [.init(id: "a1", name: "English (5.1)"), .init(id: "a2", name: "French (Stereo)")]
+        tracks.audio = "a1"
+        tracks.subtitleChoices = [.init(id: "s1", name: "English"), .init(id: "s2", name: "English — SDH")]
+        tracks.subtitle = "s1"
+        var moving = tracks
+        moving.loading = "Moving to 1:12:40…"
+        var failedWithLog = failed
+        failedWithLog.phase = .failed("Paper Plane couldn't convert this video. Try another file.")
+        failedWithLog.canShowLog = true
+        var choosingAgain = choosing
+        choosingAgain.showsTVHelp = false
         return [
             ("welcome", RemoteState(showsWelcome: true)),
             ("idle", RemoteState()),
@@ -41,6 +53,10 @@ struct RemoteSnapshotTests {
             ("long-title-hdr", hdr),
             ("failed", failed),
             ("notice", notice),
+            ("tracks", tracks),
+            ("moving", moving),
+            ("failed-with-log", failedWithLog),
+            ("choosing-tv-again", choosingAgain),
         ]
     }()
 
@@ -57,6 +73,7 @@ struct RemoteSnapshotTests {
                     Image(systemName: "airplayvideo").font(.system(size: 17)).foregroundStyle(.primary)
                 }
                 .environment(\.colorScheme, scheme)
+                .environment(\.drawsMenusAsLabels, true)
                 let renderer = ImageRenderer(content: view)
                 renderer.scale = 2
                 let image = try #require(renderer.cgImage, "\(name) didn't render")
@@ -65,6 +82,28 @@ struct RemoteSnapshotTests {
                 let png = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
                 try png.write(to: folder.appendingPathComponent("remote-\(name)-\(scheme == .dark ? "dark" : "light").png"))
             }
+        }
+    }
+
+    /// Settings is all AppKit-backed switches, which ImageRenderer can't draw, so AppKit draws
+    /// it offscreen instead (still no window on screen, no screen recording).
+    @Test func rendersSettingsInLightAndDark() throws {
+        let folder = ProcessInfo.processInfo.environment["PAPERPLANE_SNAPSHOT_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("paperplane-snapshots-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let defaults = try #require(UserDefaults(suiteName: "dev.paperplane.snapshots.\(UUID().uuidString)"))
+        let store = SettingsStore(defaults: defaults)
+        store.allowSurround = true
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            let view = NSHostingView(rootView: SettingsView(store: store))
+            view.appearance = NSAppearance(named: appearance)
+            view.frame = NSRect(origin: .zero, size: view.fittingSize)
+            view.layoutSubtreeIfNeeded()
+            let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            #expect(bitmap.pixelsWide > 400, "\(name)")
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: folder.appendingPathComponent("settings-\(name).png"))
         }
     }
 

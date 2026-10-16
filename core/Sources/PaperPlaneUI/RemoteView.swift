@@ -14,6 +14,12 @@ public struct RemoteActions: Sendable {
     public var setVolume: @MainActor @Sendable (Double) -> Void
     public var dismissWelcome: @MainActor @Sendable () -> Void
     public var dismissNotice: @MainActor @Sendable () -> Void
+    /// An audio track's `RemoteState.Choice.id`.
+    public var selectAudio: @MainActor @Sendable (String) -> Void
+    /// A subtitle's `RemoteState.Choice.id`, or nil for off.
+    public var selectSubtitle: @MainActor @Sendable (String?) -> Void
+    /// Reveals the saved log of the last failure.
+    public var showLog: @MainActor @Sendable () -> Void
 
     public init(openVideo: @escaping @MainActor @Sendable () -> Void = {},
                 drop: @escaping @MainActor @Sendable ([URL]) -> Bool = { _ in false },
@@ -23,7 +29,10 @@ public struct RemoteActions: Sendable {
                 stop: @escaping @MainActor @Sendable () -> Void = {},
                 setVolume: @escaping @MainActor @Sendable (Double) -> Void = { _ in },
                 dismissWelcome: @escaping @MainActor @Sendable () -> Void = {},
-                dismissNotice: @escaping @MainActor @Sendable () -> Void = {}) {
+                dismissNotice: @escaping @MainActor @Sendable () -> Void = {},
+                selectAudio: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+                selectSubtitle: @escaping @MainActor @Sendable (String?) -> Void = { _ in },
+                showLog: @escaping @MainActor @Sendable () -> Void = {}) {
         self.openVideo = openVideo
         self.drop = drop
         self.togglePlay = togglePlay
@@ -33,6 +42,9 @@ public struct RemoteActions: Sendable {
         self.setVolume = setVolume
         self.dismissWelcome = dismissWelcome
         self.dismissNotice = dismissNotice
+        self.selectAudio = selectAudio
+        self.selectSubtitle = selectSubtitle
+        self.showLog = showLog
     }
 }
 
@@ -132,7 +144,7 @@ struct WelcomeView: View {
     var done: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Welcome to Paper Plane")
                     .font(.title2.weight(.semibold))
@@ -221,13 +233,13 @@ struct NowPlayingCard<RoutePicker: View>: View {
     var routePicker: RoutePicker
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             header
             switch state.phase {
             case .failed:
                 failure
             default:
-                if case .choosingTV = state.phase {
+                if case .choosingTV = state.phase, state.showsTVHelp {
                     chooseTVCallout
                 }
                 Scrubber(state: state, seek: actions.seek, skip: actions.skip)
@@ -270,19 +282,39 @@ struct NowPlayingCard<RoutePicker: View>: View {
         .background(.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    /// Stop on the left, the AirPlay button (and the audio and subtitle menu) on the right, and
+    /// play with its skips centred between them whatever their widths. Borderless buttons, so
+    /// Full Keyboard Access draws focus rings.
     private var transport: some View {
         HStack {
             Button(action: actions.stop) {
                 Image(systemName: "stop.circle").font(.system(size: 20, weight: .regular))
                     .frame(width: 32, height: 32)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(RemoteButtonStyle())
             .foregroundStyle(.primary)
             .keyboardShortcut(".", modifiers: .command)
             .accessibilityLabel("Stop")
             .help("Stop")
 
             Spacer()
+
+            HStack(spacing: 4) {
+                if state.canChooseTracks, state.audioChoices.count > 1 || !state.subtitleChoices.isEmpty {
+                    TracksMenu(state: state, selectAudio: actions.selectAudio, selectSubtitle: actions.selectSubtitle)
+                }
+                routePicker
+                    .frame(width: 32, height: 32)
+                    .background {
+                        if case .choosingTV = state.phase {
+                            Circle().fill(.tint.opacity(0.18))
+                            Circle().strokeBorder(.tint, lineWidth: 1.5)
+                        }
+                    }
+                    .help("Choose your TV")
+            }
+        }
+        .overlay {
             HStack(spacing: 20) {
                 TransportButton(symbol: "gobackward.10", label: "Back 10 seconds", enabled: state.canControlPlayback) {
                     actions.skip(-10)
@@ -296,17 +328,6 @@ struct NowPlayingCard<RoutePicker: View>: View {
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [])
             }
-            Spacer()
-
-            routePicker
-                .frame(width: 32, height: 32)
-                .background {
-                    if case .choosingTV = state.phase {
-                        Circle().fill(.tint.opacity(0.18))
-                        Circle().strokeBorder(.tint, lineWidth: 1.5)
-                    }
-                }
-                .help("Choose your TV")
         }
     }
 
@@ -338,6 +359,12 @@ struct NowPlayingCard<RoutePicker: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
+                if state.canShowLog {
+                    Button("Show Log", action: actions.showLog)
+                        .buttonStyle(RemoteButtonStyle())
+                        .foregroundStyle(.tint)
+                        .help("Show the details in Finder, for a bug report")
+                }
                 Spacer()
                 Button("Dismiss", action: actions.stop)
                     .controlSize(.large)
@@ -357,6 +384,8 @@ struct StatusLine: View {
 
     var body: some View {
         switch state.phase {
+        case _ where state.loading != nil && state.canChooseTracks:
+            label("hourglass", color: .secondary)
         case .preparing:
             label("hourglass", color: .secondary)
         case .choosingTV:
@@ -420,7 +449,7 @@ struct PlayButton: View {
                 .frame(width: 56, height: 56)
                 .background(Circle().fill(enabled ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary)))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RemoteButtonStyle(circle: true))
         .disabled(!enabled)
         .accessibilityLabel(label)
         .help(label)
@@ -439,12 +468,102 @@ struct TransportButton: View {
                 .font(.system(size: 20, weight: .medium))
                 .frame(width: 40, height: 40)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RemoteButtonStyle(circle: true))
         .foregroundStyle(enabled ? .primary : .tertiary)
         .disabled(!enabled)
         .accessibilityLabel(label)
         .help(label)
     }
+}
+
+/// Audio and subtitles in one menu, as the TV app has them. Picking audio, or subtitles that
+/// are drawn into the picture, takes a moment while a new session starts.
+struct TracksMenu: View {
+    var state: RemoteState
+    var selectAudio: @MainActor @Sendable (String) -> Void
+    var selectSubtitle: @MainActor @Sendable (String?) -> Void
+
+    @Environment(\.drawsMenusAsLabels) private var drawsMenusAsLabels
+
+    var body: some View {
+        if drawsMenusAsLabels {
+            label
+        } else {
+            menu
+        }
+    }
+
+    private var label: some View {
+        Image(systemName: state.subtitle == nil ? "captions.bubble" : "captions.bubble.fill")
+            .font(.system(size: 18, weight: .regular))
+            .frame(width: 32, height: 32)
+    }
+
+    private var menu: some View {
+        Menu {
+            if state.audioChoices.count > 1 {
+                Picker("Audio", selection: Binding(get: { state.audio ?? "" }, set: selectAudio)) {
+                    ForEach(state.audioChoices) { Text($0.name).tag($0.id) }
+                }
+                .pickerStyle(.inline)
+            }
+            if !state.subtitleChoices.isEmpty {
+                Picker("Subtitles", selection: Binding(get: { state.subtitle ?? "" },
+                                                       set: { selectSubtitle($0.isEmpty ? nil : $0) })) {
+                    Text("Off").tag("")
+                    ForEach(state.subtitleChoices) { Text($0.name).tag($0.id) }
+                }
+                .pickerStyle(.inline)
+            }
+        } label: {
+            label
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("Audio and Subtitles")
+        .help("Audio and Subtitles")
+    }
+}
+
+/// The remote's own buttons: no bezel, dimmed while pressed, and a focus ring of their own so
+/// Full Keyboard Access shows where it is (design audit, move 1). Drawn entirely by SwiftUI, so
+/// the snapshots show them as they are.
+struct RemoteButtonStyle: ButtonStyle {
+    var circle = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        Styled(configuration: configuration, circle: circle)
+    }
+
+    private struct Styled: View {
+        let configuration: Configuration
+        let circle: Bool
+        @Environment(\.isFocused) private var isFocused
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .contentShape(Rectangle())
+                .opacity(configuration.isPressed ? 0.6 : 1)
+                .overlay {
+                    if isFocused && isEnabled {
+                        if circle {
+                            Circle().strokeBorder(.tint.opacity(0.7), lineWidth: 3).padding(-4)
+                        } else {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(.tint.opacity(0.7), lineWidth: 3).padding(-4)
+                        }
+                    }
+                }
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// Menus draw only their label: ImageRenderer can't draw AppKit's pop-up buttons, so the
+    /// snapshots set this.
+    @Entry var drawsMenusAsLabels = false
 }
 
 // MARK: - Scrubber
@@ -471,7 +590,7 @@ struct Scrubber: View {
                     Capsule().fill(state.canControlPlayback ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                         .frame(width: max(6, width * played))
                 }
-                .frame(height: dragFraction == nil ? 6 : 8)
+                .frame(height: dragFraction == nil ? 4 : 6)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .gesture(

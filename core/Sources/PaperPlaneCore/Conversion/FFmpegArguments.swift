@@ -8,6 +8,8 @@ enum HLSFileNames {
     static let mediaPlaylist = "index.m3u8"
     static let initSegment = "init.mp4"
     static let segmentPattern = "seg_%05d.m4s"
+    /// The text subtitles to burn in, as WebVTT on the session's timeline.
+    static let burnInSubtitles = "burn-in.vtt"
 }
 
 extension ResolvedInput.Input {
@@ -36,7 +38,24 @@ extension ConversionPlan {
             args += item.ffmpegInputArguments(seek: start)
         }
 
-        args += ["-map", video.mapSpecifier]
+        var filters = burnIn == .text ? ["subtitles=f=\(HLSFileNames.burnInSubtitles)"] : []
+        if case .encode(let encode) = videoAction, encode.toneMapToSDR {
+            // Tone-map before drawing subtitles, so they keep their own colours.
+            filters.insert(Self.toneMapFilter, at: 0)
+        }
+        if case .picture(let subtitles) = burnIn {
+            // The video's own filters first, then the subtitles on top.
+            let base = filters.isEmpty
+                ? "[\(video.mapSpecifier)]"
+                : "[\(video.mapSpecifier)]" + filters.joined(separator: ",") + "[base];[base]"
+            args += ["-filter_complex", base + "[\(subtitles.mapSpecifier)]overlay=eof_action=pass[video]",
+                     "-map", "[video]"]
+        } else {
+            args += ["-map", video.mapSpecifier]
+            if !filters.isEmpty {
+                args += ["-vf", filters.joined(separator: ",")]
+            }
+        }
         if let audio {
             args += ["-map", audio.mapSpecifier]
         } else {
@@ -83,9 +102,6 @@ extension ConversionPlan {
                 "-b:v", String(encode.bitrate),
                 "-force_key_frames", "expr:gte(t,n_forced*\(Self.segmentSeconds))",
             ]
-            if encode.toneMapToSDR {
-                args += ["-vf", Self.toneMapFilter]
-            }
             return args
         }
     }

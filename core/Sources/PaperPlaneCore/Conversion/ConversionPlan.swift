@@ -19,10 +19,22 @@ public struct OutputProfile: Equatable, Sendable {
 /// The user's track picks. nil means "use the default".
 public struct TrackChoice: Equatable, Sendable {
     public var audio: TrackRef?
+    /// Subtitles drawn into the picture, which means converting the video.
+    public var burnIn: BurnIn?
 
-    public init(audio: TrackRef? = nil) {
+    public init(audio: TrackRef? = nil, burnIn: BurnIn? = nil) {
         self.audio = audio
+        self.burnIn = burnIn
     }
+}
+
+/// Subtitles burned into the video (spec §4.1).
+public enum BurnIn: Equatable, Sendable {
+    /// A picture track (PGS, VobSub, DVB), overlaid straight from the file.
+    case picture(TrackRef)
+    /// A text track, drawn by libass from the session's `burn-in.vtt` (the "Always burn in
+    /// subtitles" setting, for TVs that don't show subtitle tracks).
+    case text
 }
 
 public enum VideoEncoder: Equatable, Sendable {
@@ -78,6 +90,8 @@ public struct ConversionPlan: Equatable, Sendable {
     public var videoRange: VideoRange = .sdr
     /// The video's frames per second, which conversion keeps. nil when unknown.
     public var frameRate: Double? = nil
+    /// Subtitles drawn into the picture. Only with `.encode`.
+    public var burnIn: BurnIn? = nil
 }
 
 public enum PlanError: Error, Equatable {

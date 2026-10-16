@@ -9,14 +9,15 @@ public enum ConversionPlanner {
     ) throws -> ConversionPlan {
         guard let video = media.video.first else { throw PlanError.noVideoTrack }
         let audio = try pickAudio(media.audio, choice: choice.audio)
-        let action = videoAction(for: video, profile: profile)
+        let action = videoAction(for: video, profile: profile, burningIn: choice.burnIn != nil)
         return ConversionPlan(
             video: video.ref,
             videoAction: action,
             audio: audio?.ref,
             audioAction: audio.map { audioAction(for: $0, profile: profile) },
             videoRange: videoRange(of: video, after: action),
-            frameRate: video.frameRate)
+            frameRate: video.frameRate,
+            burnIn: choice.burnIn)
     }
 
     // MARK: - Video
@@ -27,9 +28,10 @@ public enum ConversionPlanner {
         .hevc: ["yuv420p", "yuvj420p", "yuv420p10le"],
     ]
 
-    static func videoAction(for track: VideoTrack, profile: OutputProfile) -> VideoAction {
+    /// Copy what Apple can decode, unless subtitles are drawn into it; otherwise convert.
+    static func videoAction(for track: VideoTrack, profile: OutputProfile, burningIn: Bool = false) -> VideoAction {
         let needsToneMap = track.hdr != nil && !profile.hdr
-        if let formats = copyablePixelFormats[track.codec],
+        if !burningIn, let formats = copyablePixelFormats[track.codec],
            formats.contains(track.pixelFormat ?? "yuv420p"),
            !needsToneMap {
             return .copy(track.codec)

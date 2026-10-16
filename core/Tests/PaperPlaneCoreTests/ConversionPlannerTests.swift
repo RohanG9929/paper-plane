@@ -160,4 +160,28 @@ struct ConversionPlannerTests {
         #expect(plan.audio == nil)
         #expect(plan.audioAction == nil)
     }
+
+    // MARK: - Burning in subtitles (spec §4.1)
+
+    @Test func burningInReencodesVideoThatWouldBeCopied() throws {
+        let pgs = TrackRef(index: 3)
+        let plan = try ConversionPlanner.plan(Self.media([Self.video(.h264, height: 720)], []),
+                                              choice: TrackChoice(burnIn: .picture(pgs)))
+        #expect(plan.burnIn == .picture(pgs))
+        #expect(plan.videoAction == .encode(VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: false,
+                                                        bitrate: 5_000_000)))
+
+        let hdr = try ConversionPlanner.plan(Self.media([Self.video(.hevc, height: 2160, pixelFormat: "yuv420p10le",
+                                                                    hdr: .pq)], []),
+                                             choice: TrackChoice(burnIn: .text), profile: Self.surroundAndHDR)
+        #expect(hdr.videoAction == .encode(VideoEncode(encoder: .hevc, keepHDR: .pq, toneMapToSDR: false,
+                                                       bitrate: 16_000_000)))
+        #expect(hdr.videoRange == .pq)
+    }
+
+    @Test func noBurnInLeavesTheVideoAlone() throws {
+        let plan = try ConversionPlanner.plan(Self.media([Self.video(.h264)], []))
+        #expect(plan.burnIn == nil)
+        #expect(plan.videoAction == .copy(.h264))
+    }
 }

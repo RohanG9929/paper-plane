@@ -85,6 +85,43 @@ struct FFmpegArgumentsTests {
         #expect(stereo.contains(subsequence: ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]))
     }
 
+    @Test func pictureSubtitlesAreOverlaid() {
+        let encode = VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: true, bitrate: 8_000_000)
+        var plan = Self.plan(.encode(encode))
+        plan.burnIn = .picture(TrackRef(index: 4))
+        let args = plan.ffmpegArguments(input: Self.movie, start: 0, output: Self.output)
+        // The video is tone-mapped first, so the subtitles keep their own colours.
+        #expect(args.contains(subsequence: [
+            "-filter_complex", "[0:0]" + ConversionPlan.toneMapFilter + "[base];[base][0:4]overlay=eof_action=pass[video]",
+            "-map", "[video]", "-map", "0:2",
+        ]))
+        #expect(!args.contains("-vf"))
+        #expect(!args.contains("0:0"))
+
+        plan.videoAction = .encode(VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: false, bitrate: 8_000_000))
+        #expect(plan.ffmpegArguments(input: Self.movie, start: 0, output: Self.output).contains(subsequence: [
+            "-filter_complex", "[0:0][0:4]overlay=eof_action=pass[video]",
+        ]))
+    }
+
+    @Test func textSubtitlesAreDrawnAfterToneMapping() {
+        let encode = VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: true, bitrate: 8_000_000)
+        var plan = Self.plan(.encode(encode))
+        plan.burnIn = .text
+        let args = plan.ffmpegArguments(input: Self.movie, start: 0, output: Self.output)
+        #expect(args.contains(subsequence: ["-vf", ConversionPlan.toneMapFilter + ",subtitles=f=burn-in.vtt"]))
+    }
+
+    @Test func textSubtitlesAreDrawnFromTheSessionsWebVTT() {
+        let encode = VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: false, bitrate: 8_000_000)
+        var plan = Self.plan(.encode(encode))
+        plan.burnIn = .text
+        let args = plan.ffmpegArguments(input: Self.movie, start: 0, output: Self.output)
+        // A plain relative name: ffmpeg runs in the session folder, so no path needs escaping.
+        #expect(args.contains(subsequence: ["-vf", "subtitles=f=burn-in.vtt"]))
+        #expect(args.contains(subsequence: ["-map", "0:0"]))
+    }
+
     @Test func noAudioDisablesAudio() {
         let args = Self.plan(.copy(.h264), audio: nil).ffmpegArguments(input: Self.movie, start: 0, output: Self.output)
         #expect(args.contains("-an"))

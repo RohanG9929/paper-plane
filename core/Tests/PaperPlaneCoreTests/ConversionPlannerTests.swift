@@ -21,42 +21,49 @@ struct ConversionPlannerTests {
     }
 
     static let noSurroundNoHDR = OutputProfile(surround: false, hdr: false)
+    /// The rule tests below say which TV they assume rather than relying on `.default`.
+    static let surroundAndHDR = OutputProfile(surround: true, hdr: true)
+
+    @Test func defaultProfileMatchesTheSonyResults() {
+        // docs/sony-test-results.md rows 3, 4 (surround) and 6 (HDR).
+        #expect(OutputProfile.default == OutputProfile(surround: false, hdr: false))
+    }
 
     // MARK: - Video
 
     @Test func copiesH264AndHEVC() throws {
-        #expect(ConversionPlanner.videoAction(for: Self.video(.h264), profile: .default) == .copy(.h264))
-        #expect(ConversionPlanner.videoAction(for: Self.video(.hevc, height: 2160), profile: .default) == .copy(.hevc))
+        #expect(ConversionPlanner.videoAction(for: Self.video(.h264), profile: Self.surroundAndHDR) == .copy(.h264))
+        #expect(ConversionPlanner.videoAction(for: Self.video(.hevc, height: 2160), profile: Self.surroundAndHDR) == .copy(.hevc))
     }
 
     @Test func copiesHDRWhenTheTVAcceptsIt() {
         let track = Self.video(.hevc, height: 2160, pixelFormat: "yuv420p10le", hdr: .pq)
-        #expect(ConversionPlanner.videoAction(for: track, profile: .default) == .copy(.hevc))
+        #expect(ConversionPlanner.videoAction(for: track, profile: Self.surroundAndHDR) == .copy(.hevc))
     }
 
     @Test func reencodesOtherCodecsToH264UpTo1080p() {
         for codec in [VideoCodecName.other("vp9"), .other("av1"), .other("mpeg2video"), .other("vc1")] {
-            let action = ConversionPlanner.videoAction(for: Self.video(codec, height: 1080), profile: .default)
+            let action = ConversionPlanner.videoAction(for: Self.video(codec, height: 1080), profile: Self.surroundAndHDR)
             #expect(action == .encode(VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: false,
                                                   bitrate: 8_000_000)))
         }
     }
 
     @Test func reencodesLargeSourcesToHEVC() {
-        let action = ConversionPlanner.videoAction(for: Self.video(.other("vp9"), height: 2160), profile: .default)
+        let action = ConversionPlanner.videoAction(for: Self.video(.other("vp9"), height: 2160), profile: Self.surroundAndHDR)
         #expect(action == .encode(VideoEncode(encoder: .hevc, keepHDR: nil, toneMapToSDR: false,
                                               bitrate: 16_000_000)))
     }
 
     @Test func reencodesTenBitH264BecauseAppleCannotDecodeIt() {
         let track = Self.video(.h264, height: 720, pixelFormat: "yuv420p10le")
-        #expect(ConversionPlanner.videoAction(for: track, profile: .default)
+        #expect(ConversionPlanner.videoAction(for: track, profile: Self.surroundAndHDR)
             == .encode(VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: false, bitrate: 5_000_000)))
     }
 
     @Test func reencodesHDRNonHEVCKeepingHDR() {
         let track = Self.video(.other("av1"), height: 2160, pixelFormat: "yuv420p10le", hdr: .hlg)
-        #expect(ConversionPlanner.videoAction(for: track, profile: .default)
+        #expect(ConversionPlanner.videoAction(for: track, profile: Self.surroundAndHDR)
             == .encode(VideoEncode(encoder: .hevc, keepHDR: .hlg, toneMapToSDR: false, bitrate: 16_000_000)))
     }
 
@@ -86,7 +93,7 @@ struct ConversionPlannerTests {
         (.other("mp3"), 1, .aacStereo),
     ])
     func audioWithSurroundTV(codec: AudioCodecName, channels: Int, expected: AudioAction) {
-        let action = ConversionPlanner.audioAction(for: Self.audio(codec, channels: channels), profile: .default)
+        let action = ConversionPlanner.audioAction(for: Self.audio(codec, channels: channels), profile: Self.surroundAndHDR)
         #expect(action == expected)
     }
 
@@ -106,7 +113,8 @@ struct ConversionPlannerTests {
     @Test func picksTheDefaultAudioTrackThenTheFirst() throws {
         let english = Self.audio(.aac, index: 1)
         let japanese = Self.audio(.ac3, channels: 6, isDefault: true, index: 2)
-        let flagged = try ConversionPlanner.plan(Self.media([Self.video(.h264)], [english, japanese]))
+        let flagged = try ConversionPlanner.plan(Self.media([Self.video(.h264)], [english, japanese]),
+                                                 profile: Self.surroundAndHDR)
         #expect(flagged.audio == japanese.ref)
         #expect(flagged.audioAction == .copy)
 

@@ -1,7 +1,7 @@
 import Foundation
 
-/// What the TV accepts over AirPlay. Receivers can't be queried, so this comes from
-/// testing (the Sony test sets the default) plus user overrides in Settings.
+/// What the TV accepts over AirPlay. Receivers can't be queried, so the default comes from
+/// the Sony test (docs/sony-test-results.md) and users can override it in Settings.
 public struct OutputProfile: Equatable, Sendable {
     /// Accepts AC3 / E-AC3 surround. When false, everything becomes stereo AAC.
     public var surround: Bool
@@ -13,7 +13,7 @@ public struct OutputProfile: Equatable, Sendable {
         self.hdr = hdr
     }
 
-    public static let `default` = OutputProfile(surround: true, hdr: true)
+    public static let `default` = OutputProfile(surround: false, hdr: false)
 }
 
 /// The user's track picks. nil means "use the default".

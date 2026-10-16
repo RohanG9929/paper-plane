@@ -105,7 +105,7 @@ Each unit has one job and a narrow interface. Everything except the UI and `Play
 | Text subtitles (SRT, ASS/SSA, mov_text, WebVTT; embedded or sidecar) | Default: WebVTT subtitle track in the HLS output. Fallback: burn in (re-encodes video) |
 | Picture-based subtitles (PGS, VobSub, DVB) | Burn in (re-encodes video) |
 
-The **output profile** captures what the TV accepts: subtitle tracks yes/no, surround yes/no, HDR yes/no. v1 ships one default profile, set from the Milestone 0 results on the Sony, with user overrides in Settings: "Always burn in subtitles", "Convert surround to stereo", "Convert HDR to SDR". Receivers can't be queried for capabilities, so overrides are the escape hatch for other TVs.
+The **output profile** captures what the TV accepts: subtitle tracks yes/no, surround yes/no, HDR yes/no. v1's default profile, from the Sony test, is surround **off** and HDR **off** (docs/sony-test-results.md), with user overrides in Settings: "Always burn in subtitles", "Allow surround (AC3/E-AC3)", "Allow HDR". Receivers can't be queried for capabilities, so overrides are the escape hatch for other TVs.
 
 ### 4.2 Seeking and the converted-video window
 
@@ -249,8 +249,8 @@ paper-plane/
 
 | Risk / item | Mitigation / when decided |
 |---|---|
-| The Sony's AirPlay receiver may reject or mishandle live-growing HLS, WebVTT, surround or HDR | Milestone 0 tests each one before any product code. Output profile and overrides absorb the differences |
-| macOS may not allow choosing the AirPlay TV programmatically, so the user picks it each time | Milestone 0 checks. If not possible, the remote opens with the picker ready |
+| The Sony's AirPlay receiver may reject or mishandle live-growing HLS, WebVTT, surround or HDR | Milestone 0 tests each one before any product code. Output profile and overrides absorb the differences. **Resolved:** surround off (the Sony rejects AC3/E-AC3 in fMP4 and MPEG-TS); HDR off (no HDR indicator); WebVTT subtitle tracks work; growing EVENT playlists work but start at the live edge, so Paper Plane seeks to 0 after load |
+| macOS may not allow choosing the AirPlay TV programmatically, so the user picks it each time | Milestone 0 checks. If not possible, the remote opens with the picker ready. **Resolved:** not possible. macOS doesn't remember the TV for the app or switch to it before something is loaded, so the remote opens with the picker each time and starts paused until `isExternalPlaybackActive` |
 | Sites change their players, breaking detection | Ranking logic is isolated and fixture-tested. New fixtures can be added per bug report |
 | YouTube changes break yt-dlp | Automatic yt-dlp updates and retry |
 | Lid-closed laptops sleep and stop the stream | Documented limitation for v1 |

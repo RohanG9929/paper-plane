@@ -42,9 +42,9 @@ any product playback code is written.
 
 Filled in by Plan 1 Task 9 from the results above.
 
-- `OutputProfile.default.surround`:
-- `OutputProfile.default.hdr`:
-- Subtitle approach for Plan 3 (WebVTT track or always burn in):
-- Live-playlist start (for Plan 2: rely on AVPlayer, seek to 0 after load, or write our own playlist with `#EXT-X-START`):
-- Stream server binding (for Plan 2: LAN address required, or localhost enough):
-- TV selection UX (for Plan 2):
+- `OutputProfile.default.surround`: **false**. Rows 3, 4, 3b and 4b all fail; surround tracks become stereo AAC.
+- `OutputProfile.default.hdr`: **false**. Row 6 played but showed no HDR indicator, so HDR sources are tone-mapped to SDR (needs zimg in the bundled ffmpeg, Plan 2). The Settings override restores HDR; revisit if a later check shows this TV does display HDR over AirPlay.
+- Subtitle approach for Plan 3: **WebVTT track** (row 5 works). Only picture-based subtitles get burned in.
+- Live-playlist start for Plan 2: **seek to 0 after load** (7a starts near the live edge; 7b works). Don't trust AVPlayer's seek completion `finished` flag during AirPlay: it reported false although the TV seeked.
+- Stream server binding for Plan 2: **LAN address required** (row 0: the TV fetches every segment itself).
+- TV selection UX for Plan 2: **start paused, then check `isExternalPlaybackActive`** (row 8), and **the remote opens with the picker each time** (row 9). With no TV active, AVPlayer plays on the Mac, so Paper Plane must not start playback until a TV is active. The first pairing shows a PIN on the TV.

@@ -8,7 +8,7 @@ import Testing
 struct PipelineTests {
     struct Case: Sendable, CustomTestStringConvertible {
         var file: String
-        var profile = OutputProfile.default
+        var profile = OutputProfile(surround: true, hdr: true)
         var video: VideoCodecName
         var audio: AudioCodecName?
         var channels: Int?

@@ -62,26 +62,41 @@ struct RemoteStateTests {
         #expect(Self.state(.paused).playButtonLabel == "Play")
     }
 
-    /// Until Milestone 2 restarts the conversion for a seek, the scrubber can't promise to reach
-    /// past what has been converted.
-    @Test func seekingReachesOnlyWhatIsConverted() {
-        #expect(Self.state(.playing).seekableFraction == 0.4)
-        var finished = Self.state(.playing)
-        finished.converted = 100
-        #expect(finished.seekableFraction == 1)
+    /// Past what's converted, a seek starts a new session there (spec §4.2), so the whole film
+    /// is reachable; a film of unknown length can't be scrubbed.
+    @Test func seekingReachesTheWholeFilm() {
+        #expect(Self.state(.playing).seekableFraction == 1)
         var unknown = Self.state(.playing)
-        unknown.converted = nil
-        #expect(unknown.seekableFraction == 0.1) // only up to where it is now
+        unknown.duration = nil
+        #expect(unknown.seekableFraction == 0)
     }
 
     @Test func explainsHowFarYouCanSeek() {
-        #expect(Self.state(.playing).convertedNote == "Ready up to 0:40")
+        #expect(Self.state(.playing).convertedNote == "Converted up to 0:40; a jump further on takes a moment")
         var finished = Self.state(.playing)
         finished.converted = 100
         #expect(finished.convertedNote == "")
         var unknown = Self.state(.playing)
         unknown.converted = nil
         #expect(unknown.convertedNote == "")
+    }
+
+    @Test func aNewSessionSaysWhatItIsDoing() {
+        var moving = Self.state(.playing)
+        moving.loading = "Moving to 1:02:03…"
+        #expect(moving.status == "Moving to 1:02:03…")
+        var failed = Self.state(.failed("Broken."))
+        failed.loading = "Moving to 1:02:03…"
+        #expect(failed.status == "Broken.")
+    }
+
+    @Test func tracksCanBeChosenOnceTheVideoIsLoaded() {
+        for phase in [RemoteState.Phase.choosingTV(tvWentAway: false), .playing, .paused] {
+            #expect(Self.state(phase).canChooseTracks, "\(phase)")
+        }
+        for phase in [RemoteState.Phase.idle, .preparing, .failed("x")] {
+            #expect(!Self.state(phase).canChooseTracks, "\(phase)")
+        }
     }
 
     @Test func volumeIsInertUntilTheTVPlays() {

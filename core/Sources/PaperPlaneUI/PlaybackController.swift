@@ -4,8 +4,30 @@ import Observation
 import os
 import PaperPlaneCore
 
+/// Choices that apply to every playback, from Settings (spec §4.1).
+public struct PlaybackSettings: Equatable, Sendable {
+    public var profile: OutputProfile
+    /// Draw text subtitles into the picture instead of offering them as tracks, for TVs that
+    /// don't show subtitle tracks.
+    public var alwaysBurnInSubtitles: Bool
+
+    public init(profile: OutputProfile = .default, alwaysBurnInSubtitles: Bool = false) {
+        self.profile = profile
+        self.alwaysBurnInSubtitles = alwaysBurnInSubtitles
+    }
+}
+
+/// Where a session starts and what it shows.
+public struct StreamRequest: Sendable {
+    public var start: Double
+    public var audio: TrackRef?
+    public var burnIn: SubtitleOption?
+    public var subtitles: SubtitleFiles?
+}
+
 /// Plays one video at a time on the TV: probe → plan → transcode → serve → AVPlayer → AirPlay
-/// (spec §4). Seeking past what's converted, track changes and recovery come with Milestone 2.
+/// (spec §4). Seeking outside what's converted and changing tracks start a new session
+/// (spec §4.2); see PlaybackController+Sessions.swift.
 @MainActor @Observable
 public final class PlaybackController {
     /// What the controller needs from the outside world, so tests can stand in for it.
@@ -15,35 +37,59 @@ public final class PlaybackController {
         /// The address the stream server listens on, or nil when the Mac is offline.
         public var host: @Sendable () -> String?
         public var folders: SessionFolders
-        public var profile: OutputProfile
-        /// Probe → plan → transcode → serve.
-        public var startStream: @Sendable (StreamPipeline, ResolvedInput) async throws -> ServedStream
+        public var settings: @Sendable () -> PlaybackSettings
+        public var probe: @Sendable (StreamPipeline, ResolvedInput) async throws -> PlaybackMedia
+        public var extractSubtitles: @Sendable (StreamPipeline, PlaybackMedia) async throws -> SubtitleFiles
+        /// Plan → transcode → serve.
+        public var startStream: @Sendable (StreamPipeline, PlaybackMedia, StreamRequest) async throws -> ServedStream
         /// A JPEG for the artwork.
         public var thumbnail: @Sendable (ToolPaths, URL, Double?) async -> Data?
+        /// Bytes free where the sessions are.
+        public var freeSpace: @Sendable () -> Int64?
+        /// Saves a failure's details for a bug report and says where.
+        public var saveLog: @Sendable (String, any Error) -> URL?
 
-        public init(tools: @escaping @Sendable () -> ToolPaths?, host: @escaping @Sendable () -> String?,
-                    folders: SessionFolders = .standard, profile: OutputProfile = .default,
-                    startStream: @escaping @Sendable (StreamPipeline, ResolvedInput) async throws -> ServedStream
-                        = { try await $0.start($1) },
-                    thumbnail: @escaping @Sendable (ToolPaths, URL, Double?) async -> Data? = { tools, url, duration in
-                        await Thumbnail.jpeg(tools: tools, input: .init(url: url), at: Thumbnail.moment(duration: duration))
-                    }) {
+        public init(
+            tools: @escaping @Sendable () -> ToolPaths?, host: @escaping @Sendable () -> String?,
+            folders: SessionFolders = .standard,
+            settings: @escaping @Sendable () -> PlaybackSettings = { PlaybackSettings() },
+            probe: @escaping @Sendable (StreamPipeline, ResolvedInput) async throws -> PlaybackMedia
+                = { try await $0.probe($1) },
+            extractSubtitles: @escaping @Sendable (StreamPipeline, PlaybackMedia) async throws -> SubtitleFiles
+                = { try await $0.extractSubtitles($1) },
+            startStream: @escaping @Sendable (StreamPipeline, PlaybackMedia, StreamRequest) async throws -> ServedStream
+                = { pipeline, media, request in
+                    try await pipeline.start(media, at: request.start, audio: request.audio, burnIn: request.burnIn,
+                                             subtitles: request.subtitles)
+                },
+            thumbnail: @escaping @Sendable (ToolPaths, URL, Double?) async -> Data? = { tools, url, duration in
+                await Thumbnail.jpeg(tools: tools, input: .init(url: url), at: Thumbnail.moment(duration: duration))
+            },
+            freeSpace: (@Sendable () -> Int64?)? = nil,
+            saveLog: @escaping @Sendable (String, any Error) -> URL? = { FailureLog.save(message: $0, error: $1) }
+        ) {
             self.tools = tools
             self.host = host
             self.folders = folders
-            self.profile = profile
+            self.settings = settings
+            self.probe = probe
+            self.extractSubtitles = extractSubtitles
             self.startStream = startStream
             self.thumbnail = thumbnail
+            self.freeSpace = freeSpace ?? { DiskSpace.available(at: folders.root) }
+            self.saveLog = saveLog
         }
 
         /// The app's own: the ffmpeg in its bundle and the Mac's LAN address. Only a development
         /// build (`fallsBackToInstalledFFmpeg`) may use an ffmpeg from PATH or Homebrew instead:
         /// a release must never run whatever happens to be installed under that name.
-        public static func live(bundleURL: URL, fallsBackToInstalledFFmpeg: Bool) -> Environment {
+        public static func live(bundleURL: URL, fallsBackToInstalledFFmpeg: Bool,
+                                settings: @escaping @Sendable () -> PlaybackSettings) -> Environment {
             Environment(tools: {
                             ToolPaths.inBundle(at: bundleURL) ?? (fallsBackToInstalledFFmpeg ? ToolPaths.locate() : nil)
                         },
-                        host: { LANAddress.current() })
+                        host: { LANAddress.current() },
+                        settings: settings)
         }
     }
 
@@ -62,49 +108,87 @@ public final class PlaybackController {
     static let seeksToStartOnTV = true
 
     public let player = AVPlayer()
-    public private(set) var phase = Phase.idle
+    public private(set) var phase = Phase.idle {
+        didSet { updateSleep() }
+    }
     public private(set) var title: String?
     public private(set) var detail = ""
-    public private(set) var isPaused = true
-    public private(set) var movieTime = 0.0
+    public private(set) var isPaused = true {
+        didSet { updateSleep() }
+    }
+    public internal(set) var movieTime = 0.0
     public private(set) var duration: Double?
     /// How far the conversion has got, in movie time.
-    public private(set) var convertedEnd: Double?
+    public internal(set) var convertedEnd: Double?
     public private(set) var artwork: NSImage?
     public private(set) var tvWentAway = false
     public private(set) var showsWelcome: Bool
+    /// Whether the remote still explains how to choose the TV: until one has been chosen once.
+    public private(set) var showsTVHelp: Bool
     /// A passing message, such as "that file isn't a video". Playback carries on underneath.
     public private(set) var notice: String?
-    /// How long a notice stays up.
-    @ObservationIgnored var noticeDuration = Duration.seconds(6)
+    /// The video's audio tracks and its subtitles (tracks and sidecar files).
+    public internal(set) var audioTracks: [AudioTrack] = []
+    public internal(set) var subtitleOptions: [SubtitleOption] = []
+    /// The chosen audio track; nil until a session has started.
+    public internal(set) var audio: TrackRef?
+    /// The chosen subtitles' `SubtitleOption.id`; nil when off.
+    public internal(set) var subtitle: String?
+    /// Set while a new session starts for a seek or a track change: "Moving to 1:02:03…".
+    public internal(set) var loading: String?
+    /// The saved details of the last failure, for Show Log.
+    public private(set) var failureLog: URL?
     public var volume = 1.0 {
         didSet { player.volume = Float(volume) }
     }
+    /// How long a notice stays up.
+    @ObservationIgnored var noticeDuration = Duration.seconds(6)
 
-    @ObservationIgnored private let environment: Environment
+    @ObservationIgnored let environment: Environment
     @ObservationIgnored private let welcomeSeen: @MainActor () -> Void
+    @ObservationIgnored private let tvChosen: @MainActor () -> Void
     /// Whether the user paused, as opposed to AVPlayer pausing as the TV dropped out.
-    @ObservationIgnored private var userPaused = false
-    @ObservationIgnored private var stream: ServedStream?
+    @ObservationIgnored var userPaused = false
+    @ObservationIgnored var media: PlaybackMedia?
+    @ObservationIgnored var stream: ServedStream?
+    /// The text subtitles as WebVTT, once converted.
+    @ObservationIgnored var subtitleFiles: SubtitleFiles?
+    @ObservationIgnored var extracting: Task<SubtitleFiles?, Never>?
+    /// Counts playbacks, so work for an earlier one can tell it has been replaced.
+    @ObservationIgnored var generation = 0
     @ObservationIgnored private var starting: Task<Void, Never>?
+    /// A new session for a seek or a track change.
+    @ObservationIgnored var restarting: Task<Void, Never>?
     /// Finishes once every stream stopped and every start cancelled so far has cleaned up.
     @ObservationIgnored private var cleanup: Task<Void, Never>?
-    @ObservationIgnored private var watchingEvents: Task<Void, Never>?
+    @ObservationIgnored var watchingEvents: Task<Void, Never>?
+    /// The current session's segments still on disk, and its conversion state.
+    @ObservationIgnored var segments: [SegmentWindow.Segment] = []
+    @ObservationIgnored var conversionPaused = false
+    @ObservationIgnored var conversionFinished = false
+    @ObservationIgnored var warnedAboutSpace = false
     @ObservationIgnored private var hidingNotice: Task<Void, Never>?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     /// Watch the current item for the player refusing it or stalling for good.
     @ObservationIgnored private var itemStatus: NSKeyValueObservation?
     @ObservationIgnored private var itemFailure: (any NSObjectProtocol)?
     @ObservationIgnored private var timeObserver: Any?
-    @ObservationIgnored private let log = Logger(subsystem: "dev.paperplane.app", category: "playback")
+    @ObservationIgnored private let sleep = SleepAssertion()
+    @ObservationIgnored let log = Logger(subsystem: "dev.paperplane.app", category: "playback")
 
     /// `showsWelcome` is whether the one-time explainer is still due; `welcomeSeen` is called
-    /// once it has been dismissed, to remember that.
-    public init(environment: Environment, showsWelcome: Bool, welcomeSeen: @escaping @MainActor () -> Void) {
+    /// once it has been dismissed, to remember that. Likewise `showsTVHelp` and `tvChosen`, for
+    /// the hint on choosing the TV.
+    public init(environment: Environment, showsWelcome: Bool, welcomeSeen: @escaping @MainActor () -> Void,
+                showsTVHelp: Bool = true, tvChosen: @escaping @MainActor () -> Void = {}) {
         self.environment = environment
         self.showsWelcome = showsWelcome
         self.welcomeSeen = welcomeSeen
+        self.showsTVHelp = showsTVHelp
+        self.tvChosen = tvChosen
         player.allowsExternalPlayback = true
+        // Subtitles are off unless chosen, whatever the Mac's caption settings say.
+        player.appliesMediaSelectionCriteriaAutomatically = false
         observations = [
             player.observe(\.isExternalPlaybackActive) { [weak self] _, _ in
                 Task { @MainActor in self?.externalPlaybackChanged() }
@@ -129,18 +213,9 @@ public final class PlaybackController {
         }
     }
 
-    /// What the remote window shows.
-    public var remoteState: RemoteState {
-        let remotePhase: RemoteState.Phase = switch phase {
-        case .idle: .idle
-        case .preparing: .preparing
-        case .waitingForTV: .choosingTV(tvWentAway: tvWentAway)
-        case .onTV: isPaused ? .paused : .playing
-        case .failed(let message): .failed(message)
-        }
-        return RemoteState(phase: remotePhase, title: title ?? "", detail: detail, elapsed: movieTime,
-                           duration: duration, converted: convertedEnd, volume: volume, showsWelcome: showsWelcome,
-                           notice: notice)
+    /// Whether the Mac is being kept awake (spec §6): while the TV plays.
+    var preventsSleep: Bool {
+        sleep.isHeld
     }
 
     // MARK: - Commands
@@ -174,49 +249,33 @@ public final class PlaybackController {
         }
     }
 
-    /// Moves by `seconds` (−10 or +10), within what has been converted so far.
-    public func skip(by seconds: Double) {
-        seek(toMovieTime: movieTime + seconds)
-    }
-
-    /// Goes to `time` in the movie. Until Milestone 2 restarts the conversion for a seek, it stays
-    /// within what has been converted. The TV seeks whether or not AirPlay reports it finished
-    /// (docs/sony-test-results.md, row 7b), so there is nothing to wait for.
-    public func seek(toMovieTime time: Double) {
-        guard phase == .onTV, let stream else { return }
-        let offset = stream.session.offset
-        // A second short of what's converted, so the TV never waits on a segment ffmpeg is still
-        // writing; but never behind where it's playing, so a seek forward never goes back.
-        let latest = max(offset, movieTime, (convertedEnd ?? movieTime) - 1)
-        let target = min(max(time, offset), latest)
-        movieTime = target
-        player.seek(to: CMTime(seconds: target - offset, preferredTimescale: 600))
-    }
-
     public func stop() {
-        // A cancelled start cleans up after itself (stopping ffmpeg, deleting its folder); a
-        // stream has to be stopped. Either way shutDown() waits for it.
-        let starting = starting
-        let stream = stream
+        // A cancelled start or session change cleans up after itself (stopping ffmpeg, deleting
+        // its folder); a stream has to be stopped, and converted subtitles deleted. Either way
+        // shutDown() waits for it.
+        let (starting, restarting, stream, extracting) = (starting, restarting, stream, extracting)
         starting?.cancel()
-        if starting != nil || stream != nil {
-            let earlier = cleanup
-            cleanup = Task {
+        restarting?.cancel()
+        extracting?.cancel()
+        if starting != nil || restarting != nil || stream != nil || extracting != nil {
+            afterwards {
                 await stream?.stop()
                 await starting?.value
-                await earlier?.value
+                await restarting?.value
+                await extracting?.value?.remove()
             }
         }
+        generation += 1
         self.starting = nil
+        self.restarting = nil
         self.stream = nil
+        self.extracting = nil
+        media = nil
+        subtitleFiles = nil
         watchingEvents?.cancel()
         watchingEvents = nil
         player.pause()
-        itemStatus = nil
-        if let itemFailure {
-            NotificationCenter.default.removeObserver(itemFailure)
-        }
-        itemFailure = nil
+        observeItem(nil)
         player.replaceCurrentItem(with: nil)
         title = nil
         detail = ""
@@ -227,6 +286,16 @@ public final class PlaybackController {
         convertedEnd = nil
         tvWentAway = false
         userPaused = false
+        audioTracks = []
+        subtitleOptions = []
+        audio = nil
+        subtitle = nil
+        loading = nil
+        failureLog = nil
+        segments = []
+        conversionPaused = false
+        conversionFinished = false
+        warnedAboutSpace = false
     }
 
     public func dismissWelcome() {
@@ -240,7 +309,7 @@ public final class PlaybackController {
         notice = nil
     }
 
-    private func show(notice message: String) {
+    func show(notice message: String) {
         hidingNotice?.cancel()
         notice = message
         let duration = noticeDuration
@@ -258,32 +327,39 @@ public final class PlaybackController {
         await cleanup?.value
     }
 
+    /// Runs `work` after the cleanup already queued; shutDown() waits for all of it.
+    func afterwards(_ work: @escaping @Sendable () async -> Void) {
+        let earlier = cleanup
+        cleanup = Task {
+            await work()
+            await earlier?.value
+        }
+    }
+
     // MARK: - Starting
 
     private func start(_ url: URL) async {
         do {
-            guard let tools = environment.tools() else { throw PlaybackError.noFFmpeg }
-            guard let host = environment.host() else { throw PlaybackError.offline }
-            let pipeline = StreamPipeline(tools: tools, folders: environment.folders, profile: environment.profile,
-                                          host: host)
-            let stream = try await environment.startStream(pipeline, .file(url))
+            let pipeline = try self.pipeline()
+            let media = try await environment.probe(pipeline, .file(url))
+            try Task.checkCancellation()
+            self.media = media
+            duration = media.info.duration
+            detail = Self.detail(for: media.info)
+            audioTracks = media.info.audio
+            subtitleOptions = media.subtitles
+            startExtractingSubtitles(media, with: pipeline)
+            // Subtitles are off unless the file marks a track as forced (spec §4, step 2).
+            subtitle = media.subtitles.first(where: \.isForced)?.id
+            let stream = try await environment.startStream(pipeline, media, await request(at: 0))
             guard !Task.isCancelled else {
                 await stream.stop()
                 return
             }
-            // What people watch is private: names, paths and URLs never go to the log in the clear.
-            log.info("Serving \(stream.title, privacy: .private) at \(stream.url.absoluteString, privacy: .private)")
-            self.stream = stream
-            duration = stream.media.duration
-            movieTime = stream.session.offset
-            detail = Self.detail(for: stream.media)
-            watchingEvents = Task { await watch(stream.session) }
-            let item = AVPlayerItem(url: stream.url)
-            watchForFailure(of: item)
-            player.replaceCurrentItem(with: item)
+            adopt(stream)
             phase = .waitingForTV
             externalPlaybackChanged()
-            if let jpeg = await environment.thumbnail(tools, url, duration), self.stream === stream {
+            if let jpeg = await environment.thumbnail(pipeline.tools, url, duration), self.stream === stream {
                 artwork = NSImage(data: jpeg)
             }
         } catch {
@@ -291,28 +367,79 @@ public final class PlaybackController {
             // this controller's business, and acting on it would stop the newer video.
             guard !Task.isCancelled, !(error is CancellationError) else { return }
             log.error("Couldn't play \(url.lastPathComponent, privacy: .private): \(String(describing: error), privacy: .private)")
-            fail(PlaybackError.message(for: error))
+            fail(PlaybackError.message(for: error), error: error)
         }
     }
 
-    /// Stops everything, keeping the title, and shows `message`.
-    private func fail(_ message: String) {
+    /// A pipeline with the current tools, address and settings.
+    func pipeline() throws -> StreamPipeline {
+        guard let tools = environment.tools() else { throw PlaybackError.noFFmpeg }
+        guard let host = environment.host() else { throw PlaybackError.offline }
+        return StreamPipeline(tools: tools, folders: environment.folders, profile: environment.settings().profile,
+                              host: host)
+    }
+
+    /// Converts the text subtitles in the background; sessions started afterwards offer them.
+    private func startExtractingSubtitles(_ media: PlaybackMedia, with pipeline: StreamPipeline) {
+        guard media.subtitles.contains(where: \.isText) else { return }
+        let generation = generation
+        let environment = environment
+        extracting = Task { [weak self] in
+            let files = try? await environment.extractSubtitles(pipeline, media)
+            if let self, self.generation == generation {
+                self.subtitleFiles = files
+            }
+            return files
+        }
+    }
+
+    /// Makes `stream` the one playing: its item goes to the player and its events are watched.
+    func adopt(_ stream: ServedStream) {
+        // What people watch is private: names, paths and URLs never go to the log in the clear.
+        log.info("Serving \(stream.title, privacy: .private) at \(stream.url.absoluteString, privacy: .private)")
+        self.stream = stream
+        audio = stream.plan.audio
+        movieTime = stream.session.offset
+        convertedEnd = nil
+        segments = []
+        conversionPaused = false
+        conversionFinished = false
+        watchingEvents?.cancel()
+        watchingEvents = Task { await watch(stream.session) }
+        let item = AVPlayerItem(url: stream.url)
+        observeItem(item)
+        player.replaceCurrentItem(with: item)
+        applySubtitleSelection()
+    }
+
+    /// Stops everything, keeping the title, and shows `message`. With the error behind it, its
+    /// details are saved for Show Log.
+    func fail(_ message: String, error: (any Error)? = nil) {
         let name = title
         stop()
         title = name
         phase = .failed(message)
+        if let error, !(error is PlaybackError) {
+            failureLog = environment.saveLog(message, error)
+        }
     }
 
     private func watch(_ session: TranscodeSession) async {
         for await event in session.events {
             switch event {
-            case .segment(_, let end):
+            case .segment(let index, let end):
+                let start = segments.last?.end ?? (convertedEnd.map { $0 - session.offset } ?? 0)
+                segments.append(SegmentWindow.Segment(index: index, start: start, end: end))
                 convertedEnd = session.offset + end
+                // Check on each segment too: copying converts minutes in a second, faster than
+                // the playback clock ticks.
+                manageWindow()
             case .finished:
+                conversionFinished = true
                 convertedEnd = duration ?? convertedEnd
             case .failed(let message):
                 log.error("ffmpeg failed: \(message, privacy: .private)")
-                fail("Converting the video stopped part-way through.")
+                fail("Converting the video stopped part-way through.", error: ConversionStopped(message: message))
             }
         }
     }
@@ -337,6 +464,10 @@ public final class PlaybackController {
         if active {
             guard phase == .waitingForTV else { return }
             phase = .onTV
+            if showsTVHelp {
+                showsTVHelp = false
+                tvChosen()
+            }
             let resumesPaused = tvWentAway && userPaused
             tvWentAway = false
             guard !resumesPaused else { return } // the user had paused it before the TV dropped out
@@ -355,8 +486,14 @@ public final class PlaybackController {
     }
 
     /// Fails with a plain message when the player refuses `item` or can't play on, instead of
-    /// waiting for a TV forever.
-    private func watchForFailure(of item: AVPlayerItem) {
+    /// waiting for a TV forever. nil stops watching.
+    private func observeItem(_ item: AVPlayerItem?) {
+        itemStatus = nil
+        if let itemFailure {
+            NotificationCenter.default.removeObserver(itemFailure)
+        }
+        itemFailure = nil
+        guard let item else { return }
         itemStatus = item.observe(\.status) { [weak self] item, _ in
             guard item.status == .failed else { return }
             let reason = String(describing: item.error)
@@ -377,16 +514,27 @@ public final class PlaybackController {
     }
 
     private func timeChanged(_ time: CMTime) {
-        guard let stream, phase == .onTV, time.isNumeric else { return }
+        guard let stream, phase == .onTV, loading == nil, time.isNumeric else { return }
         movieTime = stream.session.offset + time.seconds
+        manageWindow()
     }
+
+    private func updateSleep() {
+        sleep.hold(phase == .onTV && !isPaused)
+    }
+}
+
+/// ffmpeg failed after the video started playing. `message` is its redacted stderr.
+struct ConversionStopped: Error, CustomStringConvertible {
+    var message: String
+    var description: String { "ffmpeg stopped part-way through:\n\(message)" }
 }
 
 enum PlaybackError: Error {
     case noFFmpeg
     case offline
 
-    /// A plain-language message for the remote. Full error handling is Milestone 2.
+    /// A plain-language message for the remote.
     static func message(for error: any Error) -> String {
         switch error {
         case PlaybackError.noFFmpeg: "Paper Plane's video converter is missing. Reinstall Paper Plane."

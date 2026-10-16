@@ -16,6 +16,17 @@ public struct RemoteState: Equatable, Sendable {
         case failed(String)
     }
 
+    /// One entry in the audio or subtitle picker.
+    public struct Choice: Equatable, Sendable, Identifiable {
+        public var id: String
+        public var name: String
+
+        public init(id: String, name: String) {
+            self.id = id
+            self.name = name
+        }
+    }
+
     public var phase: Phase
     public var title: String
     /// Size, range and length, e.g. "4K · HDR10 · 1 h 52 min".
@@ -24,7 +35,7 @@ public struct RemoteState: Equatable, Sendable {
     public var elapsed: Double
     /// nil while unknown.
     public var duration: Double?
-    /// How far the conversion has got, in movie time. Seeking works up to here.
+    /// How far the conversion has got, in movie time. Seeking further starts a new session.
     public var converted: Double?
     /// 0…1.
     public var volume: Double
@@ -32,10 +43,24 @@ public struct RemoteState: Equatable, Sendable {
     public var showsWelcome: Bool
     /// A passing message over whatever is showing, e.g. "“song.mp3” isn't a video file."
     public var notice: String?
+    public var audioChoices: [Choice]
+    /// The chosen audio's id.
+    public var audio: String?
+    public var subtitleChoices: [Choice]
+    /// The chosen subtitles' id; nil when off.
+    public var subtitle: String?
+    /// While a seek or track change starts a new session: "Moving to 1:02:03…".
+    public var loading: String?
+    /// A failure's details were saved, so the remote offers Show Log.
+    public var canShowLog: Bool
+    /// Explain how to choose the TV, until it has been done once (design audit, move 2).
+    public var showsTVHelp: Bool
 
     public init(phase: Phase = .idle, title: String = "", detail: String = "", elapsed: Double = 0,
                 duration: Double? = nil, converted: Double? = nil, volume: Double = 1, showsWelcome: Bool = false,
-                notice: String? = nil) {
+                notice: String? = nil, audioChoices: [Choice] = [], audio: String? = nil,
+                subtitleChoices: [Choice] = [], subtitle: String? = nil, loading: String? = nil,
+                canShowLog: Bool = false, showsTVHelp: Bool = true) {
         self.phase = phase
         self.title = title
         self.detail = detail
@@ -45,6 +70,13 @@ public struct RemoteState: Equatable, Sendable {
         self.volume = volume
         self.showsWelcome = showsWelcome
         self.notice = notice
+        self.audioChoices = audioChoices
+        self.audio = audio
+        self.subtitleChoices = subtitleChoices
+        self.subtitle = subtitle
+        self.loading = loading
+        self.canShowLog = canShowLog
+        self.showsTVHelp = showsTVHelp
     }
 
     /// Play/pause, skip and seek only mean something once the TV is playing the video.
@@ -57,21 +89,33 @@ public struct RemoteState: Equatable, Sendable {
         canControlPlayback
     }
 
-    /// How far along the track a seek can go, from 0 to 1: up to what has been converted, or
-    /// only to where playback is when that's unknown. Milestone 2 lifts this.
+    /// How far along the track a seek can go, from 0 to 1: anywhere in a film of known length
+    /// (past what's converted, a new session starts there), nowhere in one of unknown length.
     public var seekableFraction: Double {
-        max(Self.fraction(of: converted ?? elapsed, in: duration), Self.fraction(of: elapsed, in: duration))
+        (duration ?? 0) > 0 ? 1 : 0
     }
 
-    /// "Ready up to 0:40" while the conversion is behind the end, so the lighter part of the track
-    /// explains itself. Empty once everything is converted or when unknown.
+    /// Audio and subtitles can be changed once the video is loaded.
+    public var canChooseTracks: Bool {
+        switch phase {
+        case .choosingTV, .playing, .paused: true
+        case .idle, .preparing, .failed: false
+        }
+    }
+
+    /// "Ready to play from here up to 0:40" while the conversion is behind the end, so the
+    /// lighter part of the track explains itself. Empty once everything is converted or when
+    /// unknown.
     public var convertedNote: String {
         guard let converted, let duration, converted < duration else { return "" }
-        return "Ready up to \(TimeText.clock(converted))"
+        return "Converted up to \(TimeText.clock(converted)); a jump further on takes a moment"
     }
 
     public var status: String {
-        switch phase {
+        if let loading, canChooseTracks {
+            return loading
+        }
+        return switch phase {
         case .idle: ""
         case .preparing: "Getting your video ready…"
         case .choosingTV(let tvWentAway):

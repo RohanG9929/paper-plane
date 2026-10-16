@@ -28,7 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let isDevelopmentBuild = false
     #endif
     let controller = PlaybackController(
-        environment: .live(bundleURL: Bundle.main.bundleURL, fallsBackToInstalledFFmpeg: isDevelopmentBuild),
+        environment: .live(bundleURL: Bundle.main.bundleURL, fallsBackToInstalledFFmpeg: isDevelopmentBuild,
+                           settings: { PlaybackSettings() }),
         showsWelcome: !UserDefaults.standard.bool(forKey: welcomeKey),
         welcomeSeen: { UserDefaults.standard.set(true, forKey: welcomeKey) })
     private lazy var remote = RemoteWindow(

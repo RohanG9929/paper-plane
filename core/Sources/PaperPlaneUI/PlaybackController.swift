@@ -36,10 +36,13 @@ public final class PlaybackController {
             self.thumbnail = thumbnail
         }
 
-        /// The app's own: the ffmpeg in its bundle (or Homebrew's in a development build) and the
-        /// Mac's LAN address.
-        public static func live(bundleURL: URL) -> Environment {
-            Environment(tools: { ToolPaths.inBundle(at: bundleURL) ?? ToolPaths.locate() },
+        /// The app's own: the ffmpeg in its bundle and the Mac's LAN address. Only a development
+        /// build (`fallsBackToInstalledFFmpeg`) may use an ffmpeg from PATH or Homebrew instead:
+        /// a release must never run whatever happens to be installed under that name.
+        public static func live(bundleURL: URL, fallsBackToInstalledFFmpeg: Bool) -> Environment {
+            Environment(tools: {
+                            ToolPaths.inBundle(at: bundleURL) ?? (fallsBackToInstalledFFmpeg ? ToolPaths.locate() : nil)
+                        },
                         host: { LANAddress.current() })
         }
     }

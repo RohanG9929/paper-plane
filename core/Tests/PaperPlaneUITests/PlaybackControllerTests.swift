@@ -110,6 +110,16 @@ struct PlaybackControllerTests {
         #expect(controller.title == "a")
     }
 
+    /// A release build uses only the ffmpeg it ships, never whatever is on PATH; a development
+    /// build without one falls back to Homebrew's.
+    @Test func onlyADevelopmentBuildFallsBackToAnInstalledFFmpeg() {
+        let bundleWithoutFFmpeg = FileManager.default.temporaryDirectory.appendingPathComponent("NoHelpers-\(UUID()).app")
+        let release = PlaybackController.Environment.live(bundleURL: bundleWithoutFFmpeg, fallsBackToInstalledFFmpeg: false)
+        #expect(release.tools() == nil)
+        let development = PlaybackController.Environment.live(bundleURL: bundleWithoutFFmpeg, fallsBackToInstalledFFmpeg: true)
+        #expect(development.tools() == ToolPaths.locate())
+    }
+
     @Test func openingAVideoRemembersTheWelcomeWasSeen() {
         var seen = 0
         let controller = PlaybackController(environment: Self.environment(start: Self.preparesForever),

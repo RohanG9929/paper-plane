@@ -22,8 +22,13 @@ struct PaperPlaneApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let welcomeKey = "didShowWelcome"
+    #if DEBUG
+    private static let isDevelopmentBuild = true
+    #else
+    private static let isDevelopmentBuild = false
+    #endif
     let controller = PlaybackController(
-        environment: .live(bundleURL: Bundle.main.bundleURL),
+        environment: .live(bundleURL: Bundle.main.bundleURL, fallsBackToInstalledFFmpeg: isDevelopmentBuild),
         showsWelcome: !UserDefaults.standard.bool(forKey: welcomeKey),
         welcomeSeen: { UserDefaults.standard.set(true, forKey: welcomeKey) })
     private lazy var remote = RemoteWindow(

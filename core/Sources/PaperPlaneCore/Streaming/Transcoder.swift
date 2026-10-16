@@ -41,7 +41,7 @@ public struct Transcoder: Sendable {
             let begin = try await sessionStart(plan, input: input, start: start)
             let renditions = subtitles.write(into: folder, offset: begin.offset)
             // ffmpeg runs in the session folder, so the burn-in subtitles need no escaped path.
-            let arguments = plan.ffmpegArguments(input: input, start: start, output: folder, trim: begin.trim)
+            let arguments = plan.ffmpegArguments(input: input, start: begin.seek, output: folder, trim: begin.trim)
             let process = try BackgroundProcess(tools.ffmpeg, arguments: arguments, in: folder)
             session = TranscodeSession(folder: folder, requestedStart: start, offset: begin.offset, process: process,
                                        plan: plan, subtitles: renditions, segmentsBeforeReady: segmentsBeforeReady)
@@ -62,9 +62,11 @@ public struct Transcoder: Sendable {
         }
     }
 
-    /// Where a session's stream begins (`offset`, in movie time) and, for copied video whose
-    /// file hides a lead-in, where ffmpeg must trim (`trim`).
+    /// How a session starts: where ffmpeg seeks the input (`seek`), where its stream begins
+    /// (`offset`, in movie time) and, for copied video whose file hides a lead-in, where ffmpeg
+    /// must trim (`trim`).
     struct SessionStart: Equatable {
+        var seek: Double
         var offset: Double
         var trim: Double?
     }
@@ -85,16 +87,17 @@ public struct Transcoder: Sendable {
     /// - From the start of a losslessly trimmed file, an edit list hides the frames before the
     ///   cut. Copying keeps them and the audio starts seconds later; a TV plays both from their
     ///   first packet, so the sound runs early. Trimming at the first shown keyframe's decode
-    ///   time drops the lead-in from both tracks.
+    ///   time drops the lead-in from both tracks. A start before that keyframe (a seek or a
+    ///   track switch in the first seconds) begins there too: seeking would land in the lead-in.
     func sessionStart(_ plan: ConversionPlan, input: ResolvedInput, start: Double) async throws -> SessionStart {
         guard case .copy = plan.videoAction, input.inputs.indices.contains(plan.video.input) else {
-            return SessionStart(offset: start, trim: nil)
+            return SessionStart(seek: start, offset: start, trim: nil)
         }
-        guard start > 0 else {
-            guard let leadIn = try await leadInStart(plan, input: input) else { return SessionStart(offset: 0, trim: nil) }
-            return SessionStart(offset: leadIn.keyframe, trim: leadIn.decodeTime - Self.trimMargin)
+        if let leadIn = try await leadInStart(plan, input: input), start < leadIn.keyframe {
+            return SessionStart(seek: 0, offset: leadIn.keyframe, trim: leadIn.decodeTime - Self.trimMargin)
         }
-        return SessionStart(offset: try await keyframeBefore(start, plan: plan, input: input), trim: nil)
+        guard start > 0 else { return SessionStart(seek: 0, offset: 0, trim: nil) }
+        return SessionStart(seek: start, offset: try await keyframeBefore(start, plan: plan, input: input), trim: nil)
     }
 
     /// The lead-in of the video input, if its first packet is hidden. Reading one packet first
@@ -170,7 +173,8 @@ public final class TranscodeSession: Sendable {
     /// Where the user asked to start, in seconds of movie time.
     public let requestedStart: Double
     /// The movie time at the start of this session's stream: movie time = offset + player time.
-    /// Earlier than `requestedStart` when copied video had to start at a keyframe.
+    /// Earlier than `requestedStart` when copied video had to start at a keyframe; later when
+    /// the file hides a lead-in and the first keyframe a TV can show comes after it.
     public let offset: Double
     /// Segment progress, then `.finished` or `.failed`. One consumer at a time.
     public let events: AsyncStream<TranscodeEvent>

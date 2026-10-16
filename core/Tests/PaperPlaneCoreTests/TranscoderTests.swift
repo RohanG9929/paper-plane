@@ -200,9 +200,10 @@ struct TranscoderMediaTests {
 
     @Test func copiedVideoAndAudioStartTogetherAfterASeek() async throws {
         // Keyframes every 5 s: a seek to 7 s starts the video at 5 s, so the audio must too.
+        let source = TestSupport.media("h264_aac_longgop.mp4")
         let (session, _) = try await start("h264_aac_longgop.mp4", from: 7)
         #expect(abs(session.offset - 5) < 0.05)
-        let served = try await ServedStream(session)
+        let served = try await ServedStream(session, source: source)
         #expect(served.firstVideoPacketIsKeyframe)
         #expect(served.isInSync, "\(served.description)")
         await session.stop()
@@ -210,18 +211,40 @@ struct TranscoderMediaTests {
 
     @Test func aLosslessTrimsHiddenLeadInIsSkipped() async throws {
         // The edit list hides 2.5 s before the cut; the first keyframe the TV can show is at 2.5 s.
+        let source = TestSupport.media("h264_aac_editlist.mp4")
         let (session, _) = try await start("h264_aac_editlist.mp4")
         #expect(abs(session.offset - 2.5) < 0.05)
-        let served = try await ServedStream(session)
+        let served = try await ServedStream(session, source: source)
         #expect(served.firstVideoPacketIsKeyframe)
         #expect(served.isInSync, "\(served.description)")
         await session.stop()
     }
 
+    @Test func aSeekBeforeTheFirstShownKeyframeAlsoSkipsTheLeadIn() async throws {
+        // 1 s is before the first keyframe the TV can show (2.5 s), so it starts there too.
+        let source = TestSupport.media("h264_aac_editlist.mp4")
+        let (session, _) = try await start("h264_aac_editlist.mp4", from: 1)
+        #expect(abs(session.offset - 2.5) < 0.05)
+        let served = try await ServedStream(session, source: source)
+        #expect(served.firstVideoPacketIsKeyframe)
+        #expect(served.isInSync, "\(served.description)")
+        await session.stop()
+    }
+
+    @Test func aSeekPastTheLeadInStartsAtTheKeyframeBeforeIt() async throws {
+        let source = TestSupport.media("h264_aac_editlist.mp4")
+        let (session, _) = try await start("h264_aac_editlist.mp4", from: 9)
+        #expect(abs(session.offset - 7.5) < 0.05)
+        let served = try await ServedStream(session, source: source)
+        #expect(served.isInSync, "\(served.description)")
+        await session.stop()
+    }
+
     @Test func aPlainFileStillStartsAtZeroWithAudioAndVideoTogether() async throws {
+        let source = TestSupport.media("h264_aac_longgop.mp4")
         let (session, _) = try await start("h264_aac_longgop.mp4")
         #expect(session.offset == 0)
-        let served = try await ServedStream(session)
+        let served = try await ServedStream(session, source: source)
         #expect(served.firstVideoPacketIsKeyframe)
         #expect(served.video < 0.1)
         #expect(served.isInSync, "\(served.description)")
@@ -329,28 +352,27 @@ struct FakeFFmpeg {
     }
 }
 
-/// What a session served, read back with ffprobe once ffmpeg has finished:
+/// What a session served, read back with ffprobe once ffmpeg has finished, against its source:
 /// - `video` / `audio`: the earliest presentation time of each track.
-/// - `videoSpan` / `audioSpan`: how much of the movie each track covers. Copied video that
-///   starts at an earlier keyframe than the audio covers more, even when both are stamped 0.
+/// - `endGap` / `sourceEndGap`: how much later the video ends than the audio, served and in the
+///   source. They match unless one track's timestamps were shifted against the other.
 /// - `firstVideoPacketIsKeyframe`: whether the TV can decode from the first packet.
 struct ServedStream {
     var video: Double
     var audio: Double
-    var videoSpan: Double
-    var audioSpan: Double
+    var endGap: Double
+    var sourceEndGap: Double
     var firstVideoPacketIsKeyframe: Bool
 
-    init(_ session: TranscodeSession) async throws {
+    init(_ session: TranscodeSession, source: URL) async throws {
         for await event in session.events {
             if case .failed(let message) = event { Issue.record("ffmpeg failed: \(message)") }
         }
         let tools = try #require(TestSupport.tools)
-        let playlist = session.folder.appendingPathComponent("index.m3u8").path
-        func packets(_ stream: String) async throws -> [(pts: Double, duration: Double, flags: String)] {
+        func packets(_ stream: String, of path: String) async throws -> [(pts: Double, duration: Double, flags: String)] {
             let result = try await ProcessRunner.run(tools.ffprobe, arguments: [
                 "-v", "error", "-select_streams", stream, "-show_entries", "packet=pts_time,duration_time,flags",
-                "-of", "csv=p=0", playlist,
+                "-of", "csv=p=0", path,
             ])
             return String(decoding: result.stdout, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap {
                 let fields = $0.split(separator: ",", omittingEmptySubsequences: false)
@@ -358,20 +380,23 @@ struct ServedStream {
                 return (pts, Double(fields[1]) ?? 0, String(fields[2]))
             }
         }
-        let video = try await packets("v:0")
-        let audio = try await packets("a:0")
-        let videoStart = try #require(video.prefix(8).map(\.pts).min())
-        let audioStart = try #require(audio.first?.pts)
-        self.video = videoStart
-        self.audio = audioStart
-        videoSpan = (video.map { $0.pts + $0.duration }.max() ?? videoStart) - videoStart
-        audioSpan = (audio.map { $0.pts + $0.duration }.max() ?? audioStart) - audioStart
+        func end(_ packets: [(pts: Double, duration: Double, flags: String)]) -> Double {
+            packets.map { $0.pts + $0.duration }.max() ?? 0
+        }
+        let playlist = session.folder.appendingPathComponent("index.m3u8").path
+        let video = try await packets("v:0", of: playlist)
+        let audio = try await packets("a:0", of: playlist)
+        self.video = try #require(video.prefix(8).map(\.pts).min())
+        self.audio = try #require(audio.first?.pts)
+        endGap = end(video) - end(audio)
+        sourceEndGap = try await end(packets("v:0", of: source.path)) - end(packets("a:0", of: source.path))
         firstVideoPacketIsKeyframe = video.first?.flags.contains("K") ?? false
     }
 
-    /// Both tracks start together and cover the same stretch of the movie.
-    var isInSync: Bool { abs(video - audio) < 0.1 && abs(videoSpan - audioSpan) < 0.15 }
+    /// Both tracks start together (within a few B-frames) and neither was shifted.
+    var isInSync: Bool { abs(video - audio) < 0.15 && abs(endGap - sourceEndGap) < 0.05 }
     var description: String {
-        String(format: "video from %.3f s for %.3f s, audio from %.3f s for %.3f s", video, videoSpan, audio, audioSpan)
+        String(format: "video starts %.3f s, audio %.3f s; video ends %.3f s after audio (source: %.3f s)",
+               video, audio, endGap, sourceEndGap)
     }
 }

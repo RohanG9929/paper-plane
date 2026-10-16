@@ -72,7 +72,7 @@ public struct PlayRequest: Equatable, Sendable {
         }
         guard message.type == "play", message.v == 1 else { throw Invalid(reason: "unknown request") }
         guard let source = message.source else { throw Invalid(reason: "nothing to play") }
-        let url = try webURL(source.url)
+        guard let url = Links.webLink(in: source.url) else { throw Invalid(reason: "not a web address") }
         let startAt = message.startAt ?? 0
         guard startAt.isFinite, startAt >= 0 else { throw Invalid(reason: "bad start time") }
         let headers = allowed(source.headers ?? [:])
@@ -88,9 +88,8 @@ public struct PlayRequest: Equatable, Sendable {
         default:
             throw Invalid(reason: "unknown source")
         }
-        let given = (message.title ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        let title = given.isEmpty ? fallbackTitle(for: url) : given
-        return PlayRequest(source: decodedSource, title: String(title.prefix(maximumTitleLength)), startAt: startAt)
+        return PlayRequest(source: decodedSource, title: tidyTitle(message.title, otherwise: fallbackTitle(for: url)),
+                           startAt: startAt)
     }
 
     /// What ffmpeg reads, for a stream. nil for a page, which needs yt-dlp first.
@@ -110,18 +109,18 @@ public struct PlayRequest: Equatable, Sendable {
         return kept
     }
 
-    /// "clip" for …/videos/clip.mp4; "Video" when the path says nothing. (lastPathComponent is
+    /// "clip" for …/videos/clip.mp4; `otherwise` when the path says nothing. (lastPathComponent is
     /// already decoded.)
-    private static func fallbackTitle(for url: URL) -> String {
+    static func fallbackTitle(for url: URL, otherwise: String = "Video") -> String {
         let name = url.deletingPathExtension().lastPathComponent
-        return name.isEmpty || name == "/" ? "Video" : name
+        return name.isEmpty || name == "/" ? otherwise : name
     }
 
-    private static func webURL(_ text: String?) throws -> URL {
-        guard let text, let url = URL(string: text), let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https", url.host() != nil
-        else { throw Invalid(reason: "not a web address") }
-        return url
+    /// A title a site chose, on one line and at most `maximumTitleLength` long; `otherwise` when
+    /// it chose none.
+    static func tidyTitle(_ given: String?, otherwise: @autoclosure () -> String) -> String {
+        let line = (given ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return String((line.isEmpty ? otherwise() : line).prefix(maximumTitleLength))
     }
 
     private struct Message: Decodable {

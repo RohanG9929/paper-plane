@@ -91,6 +91,14 @@ struct YtDlpOutputTests {
         #expect(resolved.input.title == "A clip with spaces")
     }
 
+    /// A channel link is a playlist of playlists; some pages hold several videos (multi_video).
+    @Test func nestedPlaylistsAndMultiVideosGiveTheirFirstVideo() throws {
+        let nested = #"{"_type": "playlist", "title": "Channel", "entries": [{"_type": "playlist", "title": "Videos", "entries": [\#(YtDlpFixtures.single)]}]}"#
+        #expect(try resolve(nested).input.inputs.map(\.url.absoluteString) == ["https://media.example.com/videos/clip.mp4"])
+        let multi = #"{"_type": "multi_video", "title": "Two parts", "entries": [\#(YtDlpFixtures.single)]}"#
+        #expect(try resolve(multi).input.inputs.count == 1)
+    }
+
     @Test func anEmptyPlaylistIsUnsupported() {
         #expect(throws: YtDlpFailure.unsupported) { try resolve(YtDlpFixtures.emptyPlaylist) }
         #expect(throws: YtDlpFailure.unsupported) { try resolve(#"{"_type": "video", "title": "No formats"}"#) }
@@ -168,6 +176,31 @@ struct YtDlpOutputTests {
         #expect(YtDlpFailure.failed(reason: nil) != .failed(reason: "Private video."))
         #expect(YtDlpFailure.failed(reason: nil) != .timedOut)
         #expect(YtDlpFailure.missing != .unsupported)
+    }
+
+    /// No network, or a site that doesn't answer: plain words, not Python's.
+    @Test(arguments: [
+        "ERROR: [youtube] abc: Unable to download API page: [Errno 8] nodename nor servname provided, or not known (caused by TransportError('[Errno 8] nodename nor servname provided, or not known'))",
+        "ERROR: [generic] Unable to download webpage: <urlopen error [Errno 61] Connection refused> (caused by TransportError(\"<urlopen error [Errno 61] Connection refused>\"))",
+        "ERROR: [youtube] abc: Unable to download webpage: The read operation timed out (caused by TransportError('The read operation timed out'))",
+    ])
+    func unreachableSitesAreNamedAsSuch(_ stderr: String) {
+        #expect(YtDlpFailure.from(stderr: Data(stderr.utf8)) == .unreachable)
+    }
+
+    /// Recent yt-dlp needs a JavaScript runtime for YouTube; it warns before failing.
+    @Test func aMissingJavaScriptRuntimeIsNamed() {
+        let stderr = """
+        WARNING: [youtube] No supported JavaScript runtime could be found. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See https://github.com/yt-dlp/yt-dlp/wiki/EJS for details
+        ERROR: [youtube] abc: Requested format is not available. Use --list-formats for a list of available formats
+        """
+        #expect(YtDlpFailure.from(stderr: Data(stderr.utf8)) == .needsJavaScriptRuntime)
+    }
+
+    /// An HTTP error keeps its words, without Python's "(caused by …)".
+    @Test func anHTTPErrorKeepsItsWordsOnly() {
+        let stderr = "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: 'Not Found'>)"
+        #expect(YtDlpFailure.from(stderr: Data(stderr.utf8)) == .failed(reason: "Unable to download webpage: HTTP Error 404: Not Found"))
     }
 
     @Test func unsupportedURLIsNamedAsSuch() {

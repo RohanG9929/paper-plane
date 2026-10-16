@@ -7,6 +7,7 @@ has its own server. Prints "PORT <n>" once listening, so callers can pass --port
 import argparse
 import functools
 import http.server
+import time
 
 HLS_TYPES = {
     ".m3u8": "application/vnd.apple.mpegurl",
@@ -22,8 +23,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def admit(self):
         """Test hooks that act like a site: /status/<code>/… answers with that status,
-        /cookie/<name>=<value>/… serves the rest of the path only with that cookie, and
-        /redirect/<host:port>/… redirects to the rest of the path on that host."""
+        /cookie/<name>=<value>/… serves the rest of the path only with that cookie,
+        /redirect/<host:port>/… redirects to the rest of the path on that host, and
+        /hang/<seconds>/… says nothing for that long."""
         if self.server.log:
             with open(self.server.log, "a") as log:
                 log.write(f"{self.headers.get('Host')} {self.path} cookie={self.headers.get('Cookie')}\n")
@@ -32,6 +34,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_response(302)
             self.send_header("Location", f"http://{parts[2]}/" + (parts[3] if len(parts) > 3 else ""))
             self.end_headers()
+            return False
+        if len(parts) >= 3 and parts[1] == "hang":
+            time.sleep(float(parts[2]))
             return False
         if len(parts) >= 3 and parts[1] == "status":
             self.send_error(int(parts[2]))

@@ -42,6 +42,26 @@ struct LinksTests {
         }
     }
 
+    /// yt-dlp keeps a cookie to the exact host of the page it's given, and asks www.youtube.com
+    /// for the video: every YouTube page goes to it as www.youtube.com, so the browser's
+    /// sign-in reaches the requests that need it.
+    @Test func youTubePagesGoToYtDlpAsWwwYouTube() {
+        let cases = [
+            ("https://www.youtube.com/watch?v=abc&t=90", "https://www.youtube.com/watch?v=abc&t=90"),
+            ("https://youtube.com/watch?v=abc", "https://www.youtube.com/watch?v=abc"),
+            ("https://m.youtube.com/watch?v=abc&t=5s", "https://www.youtube.com/watch?v=abc&t=5s"),
+            ("https://music.youtube.com/watch?v=abc&list=RDx", "https://www.youtube.com/watch?v=abc&list=RDx"),
+            ("https://youtube.com/shorts/abc", "https://www.youtube.com/shorts/abc"),
+            ("https://youtu.be/abc?t=90", "https://www.youtube.com/watch?v=abc&t=90"),
+            ("https://youtu.be/abc", "https://www.youtube.com/watch?v=abc"),
+            ("https://vimeo.com/76979871", "https://vimeo.com/76979871"),
+            ("https://youtu.be/", "https://youtu.be/"),
+        ]
+        for (page, expected) in cases {
+            #expect(Links.forYtDlp(URL(string: page)!).absoluteString == expected, "\(page)")
+        }
+    }
+
     /// A title until yt-dlp gives one.
     @Test func aPagesTitleIsItsSiteUntilItsKnown() {
         #expect(Links.placeholderTitle(for: URL(string: "https://www.vimeo.com/76979871")!) == "vimeo.com")

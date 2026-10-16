@@ -16,22 +16,34 @@ public enum Links {
     /// A link straight to an HLS playlist or a video file, which ffmpeg reads as it is; nil for a
     /// page, which yt-dlp has to look at first.
     public static func direct(_ url: URL) -> ResolvedInput? {
-        let name = url.deletingPathExtension().lastPathComponent
-        let title = name.isEmpty || name == "/" ? placeholderTitle(for: url) : name
-        switch url.pathExtension.lowercased() {
-        case "m3u8":
+        let title = PlayRequest.fallbackTitle(for: url, otherwise: placeholderTitle(for: url))
+        if url.pathExtension.lowercased() == "m3u8" {
             return ResolvedInput(inputs: [.init(url: url, isHLS: true)], title: title)
-        case "mp4", "m4v", "mov", "webm", "mkv":
-            return ResolvedInput(inputs: [.init(url: url)], title: title)
-        default:
-            return nil
         }
+        return VideoFiles.isVideo(extension: url.pathExtension) ? ResolvedInput(inputs: [.init(url: url)], title: title) : nil
     }
 
     /// Pages the browser may send for yt-dlp: YouTube's, over HTTPS (the extension sends no others).
     public static func isYouTubePage(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https", url.port == nil, let host = url.host()?.lowercased() else { return false }
         return host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com")
+    }
+
+    /// The address to give yt-dlp for `page`: a YouTube page as www.youtube.com, where yt-dlp
+    /// asks for the video, since it keeps a cookie to the exact host it's given (youtu.be/ID
+    /// becomes watch?v=ID). Any other page as it is.
+    public static func forYtDlp(_ page: URL) -> URL {
+        guard let host = page.host()?.lowercased(), host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com"),
+              var parts = URLComponents(url: page, resolvingAgainstBaseURL: false)
+        else { return page }
+        if host == "youtu.be" {
+            let id = page.path().split(separator: "/").first.map(String.init)
+            guard let id else { return page }
+            parts.path = "/watch"
+            parts.queryItems = [URLQueryItem(name: "v", value: id)] + (parts.queryItems ?? [])
+        }
+        parts.host = "www.youtube.com"
+        return parts.url ?? page
     }
 
     /// What to call a page until yt-dlp names it: its site.

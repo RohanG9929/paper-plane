@@ -32,6 +32,8 @@ public final class YtDlpUpdater: Sendable {
     static let assetName = "yt-dlp_macos"
     static let maximumSize = 200 << 20
     static let checkInterval: TimeInterval = 24 * 60 * 60
+    /// After a failed page, a check is only repeated this long after the last.
+    static let recheckInterval: TimeInterval = 60 * 60
     private static let log = Logger(subsystem: "dev.paperplane.app", category: "yt-dlp")
 
     let copies: YtDlpCopies
@@ -77,6 +79,19 @@ public final class YtDlpUpdater: Sendable {
         }
     }
 
+    /// After an extraction fails (spec §6): updates now, unless a check was made within the hour
+    /// and there's a copy to run, so a few bad links in a row cost GitHub one request. Returns
+    /// whether a newer copy was installed.
+    public func updateAfterFailure() async throws -> Bool {
+        let now = now()
+        if copies.current() != nil, let last = lastCheck(), last <= now, now.timeIntervalSince(last) < Self.recheckInterval {
+            return false
+        }
+        let installed = try await update()
+        setLastCheck(now)
+        return installed
+    }
+
     /// Installs the latest release now if it's newer than the copy that runs. Returns whether it
     /// did. Cancelling stops waiting and the download.
     public func update() async throws -> Bool {
@@ -108,6 +123,11 @@ public final class YtDlpUpdater: Sendable {
         let files = FileManager.default
         try files.createDirectory(at: folder, withIntermediateDirectories: true)
         try files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        // A download a quit or a crash cut short.
+        for name in (try? files.contentsOfDirectory(atPath: folder.path)) ?? []
+        where name.hasPrefix(".yt-dlp-") && name.hasSuffix(".download") {
+            try? files.removeItem(at: folder.appendingPathComponent(name))
+        }
         let download = try await fetching.download(release.appendingPathComponent(Self.assetName), into: folder,
                                                    limit: Self.maximumSize)
         defer { try? files.removeItem(at: download) } // nothing once it's moved into place
@@ -177,9 +197,6 @@ public struct GitHubReleases: ReleaseFetching {
     }
 
     public func download(_ url: URL, into folder: URL, limit: Int) async throws -> URL {
-        let (response, fetch) = try await UpstreamFetch.start(Self.prepared(URLRequest(url: url)), followsRedirects: true)
-        defer { fetch.cancel() }
-        guard response.statusCode == 200 else { throw YtDlpUpdateError.status(response.statusCode) }
         let file = folder.appendingPathComponent(".yt-dlp-\(UUID().uuidString).download")
         guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
             throw CocoaError(.fileWriteUnknown)
@@ -187,13 +204,7 @@ public struct GitHubReleases: ReleaseFetching {
         do {
             let handle = try FileHandle(forWritingTo: file)
             defer { try? handle.close() }
-            var count = 0
-            for try await chunk in fetch.body {
-                count += chunk.count
-                guard count <= limit else { throw YtDlpUpdateError.tooLarge }
-                try handle.write(contentsOf: chunk)
-            }
-            try Task.checkCancellation() // a cancelled stream just ends
+            try await receive(URLRequest(url: url), limit: limit) { try handle.write(contentsOf: $0) }
         } catch {
             try? FileManager.default.removeItem(at: file)
             throw error
@@ -202,23 +213,26 @@ public struct GitHubReleases: ReleaseFetching {
     }
 
     private func fetch(_ request: URLRequest, limit: Int) async throws -> Data {
-        let (response, fetch) = try await UpstreamFetch.start(Self.prepared(request), followsRedirects: true)
-        defer { fetch.cancel() }
-        guard response.statusCode == 200 else { throw YtDlpUpdateError.status(response.statusCode) }
         var data = Data()
-        for try await chunk in fetch.body {
-            data.append(chunk)
-            guard data.count <= limit else { throw YtDlpUpdateError.tooLarge }
-        }
-        try Task.checkCancellation()
+        try await receive(request, limit: limit) { data.append($0) }
         return data
     }
 
-    /// GitHub's API wants a User-Agent; a site silent for 30 seconds is given up on.
-    private static func prepared(_ request: URLRequest) -> URLRequest {
+    /// Hands `request`'s body to `sink` a chunk at a time, refusing anything but 200 and more than
+    /// `limit` bytes. GitHub's API wants a User-Agent; a site silent for 30 seconds is given up on.
+    private func receive(_ request: URLRequest, limit: Int, _ sink: (Data) throws -> Void) async throws {
         var request = request
         request.timeoutInterval = 30
         request.setValue("Paper Plane", forHTTPHeaderField: "User-Agent")
-        return request
+        let (response, fetch) = try await UpstreamFetch.start(request, redirects: .followOverHTTPS)
+        defer { fetch.cancel() }
+        guard response.statusCode == 200 else { throw YtDlpUpdateError.status(response.statusCode) }
+        var count = 0
+        for try await chunk in fetch.body {
+            count += chunk.count
+            guard count <= limit else { throw YtDlpUpdateError.tooLarge }
+            try sink(chunk)
+        }
+        try Task.checkCancellation() // a cancelled stream just ends
     }
 }

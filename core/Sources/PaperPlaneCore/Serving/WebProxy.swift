@@ -32,7 +32,7 @@ public final class WebProxy: Sendable {
 
     /// Serves `original`'s web inputs; local files pass through unchanged.
     public static func start(serving original: ResolvedInput) async throws -> WebProxy {
-        try await start(serving: original, isLocal: LocalAddresses.isLocal)
+        try await start(serving: original, isLocal: LocalAddresses.isLocal, allowsLocal: LocalAddresses.isWhollyLocal)
     }
 
     /// The input a proxied request belongs to: its host, the headers the site expects, and
@@ -43,14 +43,23 @@ public final class WebProxy: Sendable {
         var isLocal: Bool
     }
 
-    /// `isLocal` says whether a host is on this Mac or the local network (tests stand in for it).
-    static func start(serving original: ResolvedInput, isLocal: @escaping @Sendable (String) -> Bool) async throws -> WebProxy {
+    /// `isLocal` says whether a host is on this Mac or the local network, and `allowsLocal` whether
+    /// a stream's (or page's) host is wholly there, which lets its fetches be local too (tests
+    /// stand in for both).
+    static func start(serving original: ResolvedInput, isLocal: @escaping @Sendable (String) -> Bool,
+                      allowsLocal: (@Sendable (String) -> Bool)? = nil) async throws -> WebProxy {
+        let allowsLocal = allowsLocal ?? isLocal
+        // A page's own address, not what yt-dlp found on it, decides (Milestone 4, decision 12).
+        var pageIsLocal: Bool?
+        if let page = original.page {
+            let host = page.host() ?? ""
+            pageIsLocal = await offThePool { allowsLocal(host) }
+        }
         var origins: [Origin] = []
         for item in original.inputs {
             let host = item.url.host() ?? ""
-            // A page's own address, not what yt-dlp found on it, decides (Milestone 4, decision 12).
-            let judged = original.page.map { $0.host() ?? "" } ?? host
-            origins.append(Origin(host: host, headers: item.headers, isLocal: await offThePool { isLocal(judged) }))
+            let local = if let pageIsLocal { pageIsLocal } else { await offThePool { allowsLocal(host) } }
+            origins.append(Origin(host: host, headers: item.headers, isLocal: local))
         }
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
@@ -118,7 +127,7 @@ public final class WebProxy: Sendable {
         let response: HTTPURLResponse
         let fetch: UpstreamFetch
         do {
-            (response, fetch) = try await UpstreamFetch.start(outgoing)
+            (response, fetch) = try await UpstreamFetch.start(outgoing, redirects: .handBack)
         } catch {
             await respond(on: connection, status: 502)
             return
@@ -243,27 +252,40 @@ final class UpstreamFetch: NSObject, URLSessionDataDelegate, @unchecked Sendable
     let body: AsyncThrowingStream<Data, any Error>
     private let chunks: AsyncThrowingStream<Data, any Error>.Continuation
     private let waiting = OSAllocatedUnfairLock<CheckedContinuation<HTTPURLResponse, any Error>?>(initialState: nil)
-    private let followsRedirects: Bool
+    private let redirects: RedirectPolicy
+
+    /// What happens to a redirect. Every caller says which: the proxy's checks depend on it.
+    enum RedirectPolicy {
+        /// Answered with the redirect itself, for the proxy to hand back to ffmpeg rewritten, so
+        /// the next hop passes the same checks as the first.
+        case handBack
+        /// Followed, but never from HTTPS to anything less (the yt-dlp updater: GitHub sends
+        /// release files from another host).
+        case followOverHTTPS
+    }
     /// Set once in `begin`, before anything else can touch them.
     private var session: URLSession?
     private var task: URLSessionDataTask?
 
-    /// The proxy hands redirects back to ffmpeg; the yt-dlp updater has them followed
-    /// (`followsRedirects`), though never from HTTPS to plain HTTP.
-    static func start(_ request: URLRequest, followsRedirects: Bool = false) async throws -> (HTTPURLResponse, UpstreamFetch) {
-        let fetch = UpstreamFetch(followsRedirects: followsRedirects)
-        let response = try await withCheckedThrowingContinuation { continuation in
-            fetch.waiting.withLock { $0 = continuation }
-            fetch.begin(request)
+    static func start(_ request: URLRequest, redirects: RedirectPolicy) async throws -> (HTTPURLResponse, UpstreamFetch) {
+        let fetch = UpstreamFetch(redirects: redirects)
+        // Cancelling (a stop, a quit) ends the request, which answers the wait with an error.
+        let response = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                fetch.waiting.withLock { $0 = continuation }
+                fetch.begin(request)
+            }
+        } onCancel: {
+            fetch.cancel()
         }
         return (response, fetch)
     }
 
-    private init(followsRedirects: Bool) {
+    private init(redirects: RedirectPolicy) {
         var chunks: AsyncThrowingStream<Data, any Error>.Continuation?
         body = AsyncThrowingStream { chunks = $0 }
         self.chunks = chunks!
-        self.followsRedirects = followsRedirects
+        self.redirects = redirects
         super.init()
     }
 
@@ -295,8 +317,12 @@ final class UpstreamFetch: NSObject, URLSessionDataDelegate, @unchecked Sendable
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        let downgrade = Self.isDowngrade(from: task.originalRequest?.url, to: request.url)
-        completionHandler(followsRedirects && !downgrade ? request : nil)
+        switch redirects {
+        case .handBack:
+            completionHandler(nil)
+        case .followOverHTTPS:
+            completionHandler(Self.isDowngrade(from: task.originalRequest?.url, to: request.url) ? nil : request)
+        }
     }
 
     /// From HTTPS to anything less.

@@ -148,6 +148,19 @@ struct PlaybackControllerTests {
         #expect(development.tools() == ToolPaths.locate())
     }
 
+    /// A release with no yt-dlp of its own and none downloaded says so; it never runs one from PATH.
+    @Test func aReleaseWithoutYtDlpSaysItsMissing() async throws {
+        let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("NoHelpers-\(UUID()).app")
+        let copies = YtDlpCopies(bundle: bundle, updatedFolder: bundle.appendingPathComponent("bin"), fallsBackToInstalled: false,
+                                 environment: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin"])
+        let environment = PlaybackController.Environment.live(bundleURL: bundle, fallsBackToInstalledFFmpeg: false,
+                                                              updatesYtDlp: false, settings: { PlaybackSettings() },
+                                                              copies: copies)
+        await #expect(throws: YtDlpFailure.missing) {
+            try await environment.resolvePage(URL(string: "https://www.youtube.com/watch?v=1")!, nil, "Tab")
+        }
+    }
+
     /// With updates off (the check scripts), a check never reaches GitHub.
     @Test func ytDlpUpdatesCanBeTurnedOff() async throws {
         let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("NoHelpers-\(UUID()).app")

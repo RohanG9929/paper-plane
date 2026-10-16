@@ -25,10 +25,15 @@ public enum YtDlpFailure: Error, Equatable, Sendable {
     case failed(reason: String?, log: String = "")
     /// The site took longer than the time limit.
     case timedOut
+    /// No network, or the site doesn't answer.
+    case unreachable
+    /// YouTube needs a JavaScript runtime (Deno) that yt-dlp didn't find.
+    case needsJavaScriptRuntime
 
     public static func == (lhs: YtDlpFailure, rhs: YtDlpFailure) -> Bool {
         switch (lhs, rhs) {
-        case (.missing, .missing), (.unsupported, .unsupported), (.noPlayableFormat, .noPlayableFormat), (.timedOut, .timedOut):
+        case (.missing, .missing), (.unsupported, .unsupported), (.noPlayableFormat, .noPlayableFormat), (.timedOut, .timedOut),
+             (.unreachable, .unreachable), (.needsJavaScriptRuntime, .needsJavaScriptRuntime):
             true
         case let (.failed(left, _), .failed(right, _)):
             left == right
@@ -43,8 +48,19 @@ public enum YtDlpFailure: Error, Equatable, Sendable {
         let log = Redaction.summary(of: stderr)
         guard let error = lines.last(where: { $0.hasPrefix("ERROR:") }) else { return .failed(reason: nil, log: log) }
         var message = error.dropFirst("ERROR:".count).trimmingCharacters(in: .whitespaces)
+        if lines.contains(where: { $0.hasPrefix("WARNING:") && $0.localizedCaseInsensitiveContains("JavaScript runtime") }) {
+            return .needsJavaScriptRuntime
+        }
+        if ["TransportError", "timed out", "nodename nor servname", "Connection refused", "Network is unreachable"]
+            .contains(where: { message.contains($0) }) {
+            return .unreachable
+        }
         if message.contains("Unsupported URL") {
             return .unsupported
+        }
+        // Python's own account of the error isn't for the remote.
+        if let cause = message.range(of: " (caused by ") {
+            message = String(message[..<cause.lowerBound])
         }
         if message.contains("Requested format is not available") {
             return .noPlayableFormat
@@ -74,29 +90,32 @@ enum YtDlpOutput {
 
     static func page(from data: Data, page: URL, fallbackTitle: String) throws -> ResolvedPage {
         guard let answer = try? JSONDecoder().decode(Info.self, from: data) else { throw YtDlpFailure.unsupported }
-        // A playlist link plays its first video: playlists aren't played (spec, non-goals).
-        let video = answer.type == "playlist" ? answer.entries?.lazy.compactMap { $0 }.first : answer
-        guard let video else { throw YtDlpFailure.unsupported }
+        guard let video = firstVideo(in: answer) else { throw YtDlpFailure.unsupported }
         let formats = video.requestedFormats ?? (video.url == nil ? [] : [video.format])
         guard !formats.isEmpty else { throw YtDlpFailure.unsupported }
         let inputs = try formats.map(input(for:))
 
-        let title = (video.title ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let start = video.startTime.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         return ResolvedPage(
-            input: ResolvedInput(inputs: inputs, title: String((title.isEmpty ? fallbackTitle : title).prefix(PlayRequest.maximumTitleLength)),
-                                 page: page),
+            input: ResolvedInput(inputs: inputs, title: PlayRequest.tidyTitle(video.title, otherwise: fallbackTitle), page: page),
             startTime: start)
     }
 
+    /// The answer itself, or a playlist's first video: playlists aren't played (spec, non-goals).
+    /// A channel is a playlist of playlists; a page with several parts is a `multi_video`.
+    private static func firstVideo(in info: Info, depth: Int = 0) -> Info? {
+        guard info.type == "playlist" || info.type == "multi_video" else { return info }
+        guard depth < 3, let first = info.entries?.lazy.compactMap({ $0 }).first else { return nil }
+        return firstVideo(in: first, depth: depth + 1)
+    }
+
     private static func input(for format: Format) throws -> ResolvedInput.Input {
-        guard let text = format.url, let url = URL(string: text), let scheme = url.scheme?.lowercased(),
-              scheme == "https" || scheme == "http", let host = url.host(), !host.isEmpty,
+        guard let url = Links.webLink(in: format.url), let scheme = url.scheme?.lowercased(),
               playableProtocols.contains(format.protocol ?? scheme)
         else { throw YtDlpFailure.noPlayableFormat }
         var headers: [String: String] = [:]
         for (name, value) in format.headers ?? [:] where isToken(name) && !reservedHeaders.contains(name.lowercased()) {
-            headers[name] = String(String.UnicodeScalarView(value.unicodeScalars.filter { $0 != "\r" && $0 != "\n" }))
+            headers[name] = ResolvedInput.Input.stripLineBreaks(value)
         }
         return ResolvedInput.Input(url: url, headers: headers, isHLS: (format.protocol ?? "").hasPrefix("m3u8"))
     }

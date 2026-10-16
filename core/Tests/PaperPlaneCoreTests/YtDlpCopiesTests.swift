@@ -11,6 +11,9 @@ struct YtDlpCopiesTests {
         #expect(versions.shuffled().sorted() == versions)
         #expect(YtDlpVersion("2026.10.09\n") == YtDlpVersion("2026.10.09"))
         #expect(YtDlpVersion("2026.10.09")?.description == "2026.10.09")
+        // The tag names a release folder: it comes back exactly, leading zeros and all.
+        #expect(YtDlpVersion("2026.10.09.000915\n")?.description == "2026.10.09.000915")
+        #expect(try #require(YtDlpVersion("2026.10.09.000915")) < #require(YtDlpVersion("2026.10.09.1000")))
         #expect(try #require(YtDlpVersion("2026.10.09.123456")) > #require(YtDlpVersion("2026.10.09.99")))
     }
 

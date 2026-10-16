@@ -2,30 +2,30 @@ import Foundation
 
 /// How Paper Plane asks yt-dlp about a page (spec §5.3; Milestone 4, decisions 5–8).
 enum YtDlpCommand {
-    /// Formats that can be copied (H.264 with AAC) up to 1080p first, then anything up to 1080p,
-    /// then anything at all; separate video and audio before a combined file. Never DASH, which
-    /// ffmpeg can't read.
+    /// Only what ffmpeg reads: never DASH (no libxml2), RTMP, RTSP, MMS, Smooth Streaming, Flash's
+    /// f4m, websockets or storyboards. Excluding them here lets yt-dlp fall through to a format
+    /// that plays instead of handing one back that won't.
+    static let readable = "[protocol!*=dash][protocol!^=rtmp][protocol!=rtsp][protocol!=mms][protocol!=ism]"
+        + "[protocol!=f4m][protocol!=websocket_frag][protocol!=mhtml]"
+
+    /// Formats that can be copied (H.264 with AAC) first, then anything; separate video and audio
+    /// before a combined file. Which of each comes from the sort: up to 1080p by the shorter side
+    /// (`-S res:1080`), so a vertical Short is 1080×1920, not 480×854.
     static let formats = [
-        "bv[height<=1080][vcodec^=avc1][protocol!*=dash]+ba[acodec^=mp4a][protocol!*=dash]",
-        "b[height<=1080][vcodec^=avc1][protocol!*=dash]",
-        "bv[height<=1080][protocol!*=dash]+ba[protocol!*=dash]",
-        "b[height<=1080][protocol!*=dash]",
-        "bv[protocol!*=dash]+ba[protocol!*=dash]",
-        "b[protocol!*=dash]",
+        "bv[vcodec^=avc1]\(readable)+ba[acodec^=mp4a]\(readable)",
+        "b[vcodec^=avc1]\(readable)",
+        "bv\(readable)+ba\(readable)",
+        "b\(readable)",
     ].joined(separator: "/")
 
     /// One JSON answer for one video (a playlist link gives its first). Configuration comes only
     /// from standard input, never from the owner's own yt-dlp settings, and the page comes after
-    /// `--`, so it can never be read as an option.
-    static func arguments(page: URL, cacheFolder: URL) -> [String] {
-        [
-            "-J", "--no-playlist", "--playlist-items", "1",
-            "--socket-timeout", "20",
-            "--cache-dir", cacheFolder.path,
-            "-f", formats,
-            "--ignore-config", "--config-locations", "-",
-            "--", page.absoluteString,
-        ]
+    /// `--`, so it can never be read as an option. `ffmpeg` is the app's, which yt-dlp uses to
+    /// judge which formats it can merge.
+    static func arguments(page: URL, cacheFolder: URL, ffmpeg: URL? = nil) -> [String] {
+        ["-J", "--no-playlist", "--playlist-items", "1", "--socket-timeout", "20", "--cache-dir", cacheFolder.path]
+            + (ffmpeg.map { ["--ffmpeg-location", $0.path] } ?? [])
+            + ["-f", formats, "-S", "res:1080", "--ignore-config", "--config-locations", "-", "--", page.absoluteString]
     }
 
     /// The configuration yt-dlp reads from standard input: the site's cookie, which yt-dlp keeps
@@ -42,7 +42,7 @@ enum YtDlpCommand {
     static func environment(base: [String: String]) -> [String: String] {
         var environment = base
         var path = (base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
-        for folder in ["/opt/homebrew/bin", "/usr/local/bin"] where !path.contains(folder) {
+        for folder in ToolPaths.homebrewFolders where !path.contains(folder) {
             path.append(folder)
         }
         environment["PATH"] = path.joined(separator: ":")

@@ -179,6 +179,27 @@ struct YtDlpUpdaterTests {
         }
     }
 
+    /// A failed page asks GitHub at once (spec §6), unless it was asked within the hour: a few
+    /// bad links in a row cost one request, not one each.
+    @Test func aFailureChecksAgainOnlyAfterAnHour() async throws {
+        let copies = try setUp(shipped: "2026.10.12")
+        let releases = FakeReleases.release("2026.10.12", binary: binary)
+        let times = CheckTimes()
+        let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        for (minutes, checks) in [(0.0, 1), (10, 1), (59, 1), (61, 2), (62, 2)] {
+            _ = try await updater(copies, releases, times: times, now: { start.addingTimeInterval(minutes * 60) })
+                .updateAfterFailure()
+            #expect(releases.requests.filter { $0 == "latest" }.count == checks, "at \(minutes) min")
+        }
+        // With no yt-dlp at all, every failure looks.
+        let none = try setUp(shipped: nil)
+        let empty = FakeReleases(tag: "x")
+        let recent = CheckTimes()
+        recent.last = start
+        _ = try? await updater(none, empty, times: recent, now: { start.addingTimeInterval(60) }).updateAfterFailure()
+        #expect(empty.requests == ["latest"])
+    }
+
     @Test func aFailedCheckIsTriedAgainNextLaunch() async throws {
         let copies = try setUp()
         let releases = FakeReleases.release("2026.10.12", binary: binary)
@@ -189,6 +210,16 @@ struct YtDlpUpdaterTests {
         releases.failsLatest = false
         #expect(await updater(copies, releases, times: times).updateIfDue())
         #expect(times.last != nil)
+    }
+
+    /// A download cut short by a quit or a crash doesn't stay for ever.
+    @Test func leftoverDownloadsAreRemoved() async throws {
+        let copies = try setUp()
+        try FileManager.default.createDirectory(at: copies.updatedFolder, withIntermediateDirectories: true)
+        let leftover = copies.updatedFolder.appendingPathComponent(".yt-dlp-0E8B1E9A-0000-0000-0000-000000000000.download")
+        try Data(count: 1000).write(to: leftover)
+        _ = try await updater(copies, .release("2026.10.12", binary: binary)).update()
+        #expect(contents(of: copies.updatedFolder) == ["yt-dlp", "yt-dlp.version"])
     }
 
     @Test func theInstalledCopyIsExecutableInAPrivateFolder() async throws {
@@ -281,6 +312,20 @@ struct GitHubReleasesTests {
         await #expect(throws: YtDlpUpdateError.status(404)) {
             try await GitHubReleases().data(from: server.url("status/404/SHA2-256SUMS"), limit: 1 << 20)
         }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).isEmpty)
+    }
+
+    /// Stopping or quitting doesn't wait for a site that says nothing.
+    @Test func aSilentSiteIsGivenUpOnWhenCancelled() async throws {
+        let (server, folder) = try await site()
+        defer { server.stop() }
+        let url = server.url("hang/20/yt-dlp_macos")
+        let fetching = Task { try await GitHubReleases().download(url, into: folder, limit: 1 << 20) }
+        try await Task.sleep(for: .milliseconds(300))
+        let cancelledAt = ContinuousClock.now
+        fetching.cancel()
+        await #expect(throws: (any Error).self) { try await fetching.value }
+        #expect(ContinuousClock.now - cancelledAt < .seconds(3))
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).isEmpty)
     }
 

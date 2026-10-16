@@ -11,9 +11,13 @@ struct ProcessResult: Sendable {
 enum ProcessRunner {
     /// `input` is written to the child's standard input, which is otherwise empty. `environment`
     /// replaces the app's. `qualityOfService` `.background` also has macOS throttle the child's
-    /// disk reads.
+    /// disk reads. With `disclaimsResponsibility`, the child gets none of the app's privacy
+    /// permissions (DisclaimedSpawn.swift).
     static func run(_ executable: URL, arguments: [String], input: Data? = nil, environment: [String: String]? = nil,
-                    qualityOfService: QualityOfService? = nil) async throws -> ProcessResult {
+                    qualityOfService: QualityOfService? = nil, disclaimsResponsibility: Bool = false) async throws -> ProcessResult {
+        if disclaimsResponsibility {
+            return try await runDisclaimed(executable, arguments: arguments, input: input, environment: environment)
+        }
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -62,7 +66,7 @@ enum ProcessRunner {
 
     /// Writes `data` on another thread, so a child that reads slowly can't hold the caller up, and
     /// without SIGPIPE, so a child that exits without reading can't take the app down with it.
-    private static func feed(_ data: Data, to handle: FileHandle) {
+    static func feed(_ data: Data, to handle: FileHandle) {
         let descriptor = handle.fileDescriptor
         _ = fcntl(descriptor, F_SETNOSIGPIPE, 1)
         DispatchQueue.global().async {
@@ -84,7 +88,7 @@ enum ProcessRunner {
         }
     }
 
-    private static func readToEnd(_ handle: FileHandle) async -> Data {
+    static func readToEnd(_ handle: FileHandle) async -> Data {
         await withCheckedContinuation { continuation in
             DispatchQueue.global().async {
                 continuation.resume(returning: handle.readDataToEndOfFile())

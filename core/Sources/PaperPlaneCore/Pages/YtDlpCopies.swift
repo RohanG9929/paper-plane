@@ -2,12 +2,15 @@ import Foundation
 
 /// A yt-dlp release: `2026.10.09`, or `2026.10.09.1` for a later one the same day.
 public struct YtDlpVersion: Comparable, Sendable, CustomStringConvertible {
+    /// The tag exactly as released, since it names the release's folder.
+    public let description: String
     private let parts: [Int]
 
     /// Only a version, digit for digit: it becomes part of a download address.
     public init?(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.wholeMatch(of: /[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]{1,6})?/) != nil else { return nil }
+        description = trimmed
         parts = trimmed.split(separator: ".").compactMap { Int($0) }
     }
 
@@ -15,8 +18,9 @@ public struct YtDlpVersion: Comparable, Sendable, CustomStringConvertible {
         lhs.parts.lexicographicallyPrecedes(rhs.parts)
     }
 
-    public var description: String {
-        String(format: "%04d.%02d.%02d", parts[0], parts[1], parts[2]) + parts.dropFirst(3).map { ".\($0)" }.joined()
+    /// The same release, whatever zeros its text has.
+    public static func == (lhs: YtDlpVersion, rhs: YtDlpVersion) -> Bool {
+        lhs.parts == rhs.parts
     }
 }
 
@@ -39,7 +43,7 @@ public struct YtDlpCopies: Sendable {
 
     public init(bundle: URL, updatedFolder: URL, fallsBackToInstalled: Bool,
                 environment: [String: String] = ProcessInfo.processInfo.environment,
-                fallbackFolders: [String] = ["/opt/homebrew/bin", "/usr/local/bin"]) {
+                fallbackFolders: [String] = ToolPaths.homebrewFolders) {
         self.bundle = bundle
         self.updatedFolder = updatedFolder
         self.fallsBackToInstalled = fallsBackToInstalled
@@ -56,7 +60,7 @@ public struct YtDlpCopies: Sendable {
     }
 
     var shipped: Copy? {
-        copy(in: bundle.appendingPathComponent("Contents/Helpers", isDirectory: true))
+        copy(in: ToolPaths.helpers(inBundle: bundle))
     }
 
     var updated: Copy? {
@@ -90,12 +94,6 @@ public struct YtDlpCopies: Sendable {
     /// One on PATH, then in Homebrew's folders.
     private func installed() -> Copy? {
         let folders = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + fallbackFolders
-        for folder in folders where !folder.isEmpty {
-            let executable = URL(fileURLWithPath: folder).appendingPathComponent("yt-dlp")
-            if FileManager.default.isExecutableFile(atPath: executable.path) {
-                return Copy(executable: executable, version: nil)
-            }
-        }
-        return nil
+        return ToolPaths.find("yt-dlp", in: folders).map { Copy(executable: $0, version: nil) }
     }
 }

@@ -2,6 +2,20 @@ import Foundation
 import Testing
 @testable import PaperPlaneCore
 
+struct LocalAddressTests {
+    /// A host is refused when any of its addresses is local, and lets local fetches through only
+    /// when all of them are: a public name with an extra 127.0.0.1 record is neither trusted nor used.
+    @Test func anyLocalAddressRefusesButAllAreNeededToAllow() {
+        #expect(LocalAddresses.decide(["8.8.8.8", "127.0.0.1"], all: false))
+        #expect(!LocalAddresses.decide(["8.8.8.8", "127.0.0.1"], all: true))
+        #expect(LocalAddresses.decide(["192.168.1.2", "10.0.0.1"], all: true))
+        #expect(!LocalAddresses.decide([], all: true))
+        #expect(!LocalAddresses.decide([], all: false))
+        #expect(LocalAddresses.isWhollyLocal("127.0.0.1"))
+        #expect(!LocalAddresses.isWhollyLocal("8.8.8.8"))
+    }
+}
+
 struct ProxyRouteTests {
     static let route = ProxyRoute(base: URL(string: "http://127.0.0.1:5000/t0k3n/")!)
 

@@ -129,7 +129,7 @@ struct PagePlaybackTests {
         #expect(controller.phase == .preparing)
         controller.stop()
 
-        let stillFailing = FakeYtDlpService(updateInstalls: true, [FakeYtDlpService.failing(.failed(reason: nil)),
+        let stillFailing = FakeYtDlpService(updateInstalls: true, [FakeYtDlpService.failing(.noPlayableFormat),
                                                                    FakeYtDlpService.failing(.unsupported)])
         let reply = await Self.controller(stillFailing).play(try Self.page())
         #expect(reply == .failed("Paper Plane didn't find a video at this link."))
@@ -150,6 +150,35 @@ struct PagePlaybackTests {
         let none = FakeYtDlpService([FakeYtDlpService.failing(.missing)])
         #expect(await Self.controller(none).play(try Self.page())
             == .failed("Paper Plane's YouTube helper is missing. Reinstall Paper Plane."))
+    }
+
+    /// A link to something that isn't a video (an article, say) isn't worth asking GitHub about.
+    @Test func anUnsupportedLinkIsntRetried() async throws {
+        let service = FakeYtDlpService(updateInstalls: true, [FakeYtDlpService.failing(.unsupported)])
+        let reply = await Self.controller(service).play(try Self.page())
+        #expect(reply == .failed("Paper Plane didn't find a video at this link."))
+        #expect(service.calls.count == 1)
+        #expect(service.updates == 0)
+    }
+
+    /// With no network there's nothing to ask yt-dlp; the remote says so plainly.
+    @Test func offlineSaysSoBeforeAskingYtDlp() async throws {
+        let service = FakeYtDlpService([FakeYtDlpService.hangs])
+        var environment = PlaybackControllerTests.environment(host: nil) { _, _ in throw CancellationError() }
+        service.install(in: &environment)
+        let controller = PlaybackController(environment: environment, showsWelcome: false, welcomeSeen: {})
+        let reply = await controller.play(try Self.page())
+        #expect(reply == .failed("Your Mac isn't on a network, so the TV can't reach it. Connect to your network and try again."))
+        #expect(service.calls.isEmpty)
+    }
+
+    /// Neither a newer yt-dlp nor a retry helps a site that can't be reached or a missing runtime.
+    @Test(arguments: [YtDlpFailure.unreachable, .needsJavaScriptRuntime])
+    func failuresAnUpdateCantHelpArentRetried(_ failure: YtDlpFailure) async throws {
+        let service = FakeYtDlpService(updateInstalls: true, [FakeYtDlpService.failing(failure)])
+        _ = await Self.controller(service).play(try Self.page())
+        #expect(service.calls.count == 1)
+        #expect(service.updates == 0)
     }
 
     /// A site too slow to answer won't answer faster for a newer yt-dlp.
@@ -272,6 +301,8 @@ struct PagePlaybackTests {
             (.failed(reason: "Sign in to confirm you're not a bot."), "Paper Plane couldn't get this video: Sign in to confirm you're not a bot."),
             (.failed(reason: nil), "Paper Plane couldn't get this video from the page."),
             (.timedOut, "The site took too long to answer. Try again."),
+            (.unreachable, "Paper Plane couldn't reach the site. Check your connection, then try again."),
+            (.needsJavaScriptRuntime, "YouTube now needs Deno to give Paper Plane this video. Install it with \"brew install deno\" in Terminal, then try again."),
         ]
         for (failure, message) in messages {
             #expect(PlaybackError.message(for: failure, origin: .link) == message)

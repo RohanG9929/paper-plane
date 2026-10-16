@@ -79,6 +79,39 @@ struct ProcessRunnerTests {
         #expect(String(decoding: result.stdout, as: UTF8.self) == "PAPERPLANE_TEST=1\n")
     }
 
+    /// yt-dlp runs as its own responsible process, so it never borrows Paper Plane's privacy
+    /// permissions (Desktop, Documents, Downloads; security review, Plan 5). The rest works the
+    /// same: arguments, standard input, environment, status, stderr, cancellation.
+    @Test(.timeLimit(.minutes(1))) func aDisclaimedChildRunsLikeAnyOther() async throws {
+        #expect(ProcessRunner.canDisclaim, "this macOS has no responsibility_spawnattrs_setdisclaim")
+        let echo = try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sh"),
+                                               arguments: ["-c", "cat; printf '%s' \"$PAPERPLANE_TEST\"; echo oops >&2; exit 3"],
+                                               input: Data("in ".utf8), environment: ["PAPERPLANE_TEST": "env"],
+                                               disclaimsResponsibility: true)
+        #expect(String(decoding: echo.stdout, as: UTF8.self) == "in env")
+        #expect(String(decoding: echo.stderr, as: UTF8.self) == "oops\n", "\(String(decoding: echo.stderr, as: UTF8.self))")
+        #expect(echo.status == 3)
+        let nothing = try await ProcessRunner.run(URL(fileURLWithPath: "/bin/cat"), arguments: [], disclaimsResponsibility: true)
+        #expect(nothing.stdout.isEmpty) // no input: standard input ends at once
+        let big = try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "head -c 1000000 /dev/zero"],
+                                              disclaimsResponsibility: true)
+        #expect(big.stdout.count == 1_000_000)
+        await #expect(throws: (any Error).self) {
+            try await ProcessRunner.run(URL(fileURLWithPath: "/nonexistent/tool"), arguments: [], disclaimsResponsibility: true)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancellingADisclaimedChildStopsIt() async throws {
+        let run = Task {
+            try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sleep"), arguments: ["10"], disclaimsResponsibility: true)
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        let cancelledAt = ContinuousClock.now
+        run.cancel()
+        await #expect(throws: CancellationError.self) { try await run.value }
+        #expect(ContinuousClock.now - cancelledAt < .seconds(5))
+    }
+
     @Test func missingExecutableThrows() async {
         await #expect(throws: (any Error).self) {
             try await ProcessRunner.run(URL(fileURLWithPath: "/nonexistent/tool"), arguments: [])

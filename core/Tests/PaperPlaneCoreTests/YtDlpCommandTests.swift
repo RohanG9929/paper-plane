@@ -17,6 +17,15 @@ struct YtDlpCommandTests {
         #expect(Array(arguments.drop { $0 != "--socket-timeout" }.prefix(2)) == ["--socket-timeout", "20"])
     }
 
+    /// yt-dlp merges and checks formats with ffmpeg: the app's own, not whatever is on PATH, if any.
+    @Test func argumentsNameTheAppsFFmpeg() {
+        let ffmpeg = URL(fileURLWithPath: "/Applications/Paper Plane.app/Contents/Helpers/ffmpeg")
+        let arguments = YtDlpCommand.arguments(page: page, cacheFolder: cache, ffmpeg: ffmpeg)
+        #expect(Array(arguments.drop { $0 != "--ffmpeg-location" }.prefix(2)) == ["--ffmpeg-location", ffmpeg.path])
+        #expect(Array(arguments.suffix(2)) == ["--", page.absoluteString])
+        #expect(!YtDlpCommand.arguments(page: page, cacheFolder: cache).contains("--ffmpeg-location"))
+    }
+
     /// The owner's own yt-dlp configuration never applies, and the cookie arrives on stdin (decision 5).
     @Test func argumentsReadConfigurationOnlyFromStandardInput() {
         let arguments = YtDlpCommand.arguments(page: page, cacheFolder: cache)
@@ -25,20 +34,25 @@ struct YtDlpCommandTests {
         #expect(!arguments.contains { $0.localizedCaseInsensitiveContains("cookie") })
     }
 
-    /// Spec §5.3: formats that can be copied (H.264 with AAC) up to 1080p first; never DASH, which
-    /// ffmpeg can't read (decision 7).
-    @Test func formatsPreferH264AndAACUpTo1080pAndNeverDASH() {
+    /// Spec §5.3: formats that can be copied (H.264 with AAC) first, up to 1080p by the shorter
+    /// side, so a vertical Short (1080×1920) isn't sent at 480p; and only formats ffmpeg can read
+    /// (decision 7), so yt-dlp falls through to one when the best is DASH, RTMP and the like.
+    @Test func formatsPreferH264AndAACUpTo1080pAndOnlyWhatFFmpegReads() {
         let arguments = YtDlpCommand.arguments(page: page, cacheFolder: cache)
         #expect(Array(arguments.drop { $0 != "-f" }.prefix(2)) == ["-f", YtDlpCommand.formats])
-        let alternatives = YtDlpCommand.formats.split(separator: "/").map(String.init)
-        #expect(alternatives.first == "bv[height<=1080][vcodec^=avc1][protocol!*=dash]+ba[acodec^=mp4a][protocol!*=dash]")
-        #expect(alternatives.count == 6)
-        for alternative in alternatives {
-            for part in alternative.split(separator: "+") {
-                #expect(part.hasSuffix("[protocol!*=dash]"), "\(part) could pick DASH")
-            }
+        #expect(Array(arguments.drop { $0 != "-S" }.prefix(2)) == ["-S", "res:1080"])
+        let readable = YtDlpCommand.readable
+        for refused in ["[protocol!*=dash]", "[protocol!^=rtmp]", "[protocol!=f4m]", "[protocol!=ism]",
+                        "[protocol!=websocket_frag]", "[protocol!=rtsp]", "[protocol!=mms]", "[protocol!=mhtml]"] {
+            #expect(readable.contains(refused), "\(refused)")
         }
-        #expect(alternatives.last == "b[protocol!*=dash]")
+        #expect(YtDlpCommand.formats.split(separator: "/").map(String.init) == [
+            "bv[vcodec^=avc1]\(readable)+ba[acodec^=mp4a]\(readable)",
+            "b[vcodec^=avc1]\(readable)",
+            "bv\(readable)+ba\(readable)",
+            "b\(readable)",
+        ])
+        #expect(!YtDlpCommand.formats.contains("height"), "a height cap sends Shorts at 480p")
     }
 
     @Test func noCookieMeansAnEmptyConfiguration() {

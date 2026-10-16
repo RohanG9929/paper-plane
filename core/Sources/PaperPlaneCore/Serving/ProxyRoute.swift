@@ -144,29 +144,43 @@ enum LocalAddresses {
         return inet_pton(AF_INET, bare, &v4) == 1 || inet_pton(AF_INET6, bare, &v6) == 1
     }
 
-    /// Resolves names (blocking): any local address makes the host local.
+    /// Resolves names (blocking): any local address makes the host local. For refusing.
     static func isLocal(_ host: String) -> Bool {
+        decide(addresses(of: host), all: false)
+    }
+
+    /// Resolves names (blocking): every address must be local. For allowing local fetches, so a
+    /// public name with one extra local record doesn't lift the checks.
+    static func isWhollyLocal(_ host: String) -> Bool {
+        decide(addresses(of: host), all: true)
+    }
+
+    /// Whether `addresses` are local: any of them, or `all`. None is never local (an unresolvable
+    /// name: the fetch fails anyway). An address that isn't a literal counts as local.
+    static func decide(_ addresses: [String], all: Bool) -> Bool {
+        guard !addresses.isEmpty else { return false }
+        let local = { (address: String) in literal(address) ?? true }
+        return all ? addresses.allSatisfy(local) : addresses.contains(where: local)
+    }
+
+    /// `host` itself if it's an address, else what it resolves to.
+    private static func addresses(of host: String) -> [String] {
         let bare = host.trimmingCharacters(in: ["[", "]"])
-        if let local = literal(bare) {
-            return local
+        if literal(bare) != nil {
+            return [bare]
         }
         var hints = addrinfo()
         hints.ai_socktype = SOCK_STREAM
         var results: UnsafeMutablePointer<addrinfo>?
-        guard getaddrinfo(bare, nil, &hints, &results) == 0, let first = results else {
-            return false // unresolvable: the fetch fails anyway
-        }
+        guard getaddrinfo(bare, nil, &hints, &results) == 0, let first = results else { return [] }
         defer { freeaddrinfo(results) }
-        var local = false
-        for entry in sequence(first: first, next: { $0.pointee.ai_next }) {
+        return sequence(first: first, next: { $0.pointee.ai_next }).map { entry in
             var text = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            if getnameinfo(entry.pointee.ai_addr, entry.pointee.ai_addrlen, &text, socklen_t(text.count), nil, 0,
-                           NI_NUMERICHOST) == 0,
-               literal(String(decoding: text.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)) ?? true {
-                local = true
-            }
+            guard getnameinfo(entry.pointee.ai_addr, entry.pointee.ai_addrlen, &text, socklen_t(text.count), nil, 0,
+                              NI_NUMERICHOST) == 0
+            else { return "" } // not readable: counts as local
+            return String(decoding: text.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         }
-        return local
     }
 
     /// Whether an address literal is local; nil if `host` isn't one.

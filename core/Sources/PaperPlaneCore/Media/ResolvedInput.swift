@@ -48,7 +48,7 @@ public struct ResolvedInput: Equatable, Sendable {
         }
 
         /// Removes CR and LF so a header value can't smuggle in extra headers.
-        private static func stripLineBreaks(_ text: String) -> String {
+        static func stripLineBreaks(_ text: String) -> String {
             String(String.UnicodeScalarView(text.unicodeScalars.filter { $0 != "\r" && $0 != "\n" }))
         }
     }

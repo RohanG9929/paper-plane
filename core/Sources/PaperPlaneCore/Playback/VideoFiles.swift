@@ -11,8 +11,12 @@ public enum VideoFiles {
     /// True for files whose type is a movie or video. Folders, audio, subtitles and images are
     /// left out.
     public static func isVideo(_ url: URL) -> Bool {
-        guard url.isFileURL, !url.hasDirectoryPath else { return false }
-        let pathExtension = url.pathExtension.lowercased()
+        url.isFileURL && !url.hasDirectoryPath && isVideo(extension: url.pathExtension)
+    }
+
+    /// True for a video file's extension, whatever case it's in.
+    static func isVideo(extension pathExtension: String) -> Bool {
+        let pathExtension = pathExtension.lowercased()
         if knownExtensions.contains(pathExtension) {
             return true
         }

@@ -62,6 +62,39 @@ struct YtDlpTests {
         #expect(fake.recorded("path") == "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin")
     }
 
+    /// The browser's cookie reaches www.youtube.com's requests whatever YouTube host the tab was on.
+    @Test func aYouTubePageReachesYtDlpAsWwwYouTube() async throws {
+        let fake = try FakeYtDlp.answering(YtDlpFixtures.youtube)
+        _ = try await YtDlp.resolve(page: URL(string: "https://m.youtube.com/watch?v=aqz-KE-bpKQ")!, cookie: "SID=1",
+                                    executable: fake.executable, cacheFolder: fake.folder, fallbackTitle: "Tab")
+        #expect(fake.recorded("arguments")?.hasSuffix("--\nhttps://www.youtube.com/watch?v=aqz-KE-bpKQ\n") == true)
+    }
+
+    /// yt-dlp, and whatever stands in its place, gets none of Paper Plane's privacy permissions:
+    /// a disclaimed child's responsible process is itself (security review, Plan 5).
+    @Test(.timeLimit(.minutes(1))) func ytDlpIsItsOwnResponsibleProcess() async throws {
+        let fake = try FakeYtDlp("sleep 1; cat \"$DIR/answer.json\"")
+        try YtDlpFixtures.single.write(to: fake.folder.appendingPathComponent("answer.json"), atomically: true, encoding: .utf8)
+        let resolving = Task { try await resolve(with: fake) }
+        for _ in 0..<100 where fake.pid == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let pid = try #require(fake.pid)
+        let responsible = try #require(Self.responsiblePID(for: pid), "no responsibility SPI on this macOS")
+        #expect(responsible == pid, "yt-dlp's responsible process is \(responsible), not itself")
+        _ = try await resolving.value
+    }
+
+    /// The process macOS holds responsible for `pid`'s privacy permissions (a private call, as
+    /// browsers use for their helpers).
+    static func responsiblePID(for pid: pid_t) -> pid_t? {
+        typealias Responsible = @convention(c) (pid_t) -> pid_t
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid") else {
+            return nil
+        }
+        return unsafeBitCast(symbol, to: Responsible.self)(pid)
+    }
+
     /// Spec §5.4: on standard input, never on the command line, where any process can read it.
     @Test func theCookieIsNeverOnTheCommandLine() async throws {
         let fake = try FakeYtDlp.answering(YtDlpFixtures.single)
@@ -85,7 +118,7 @@ struct YtDlpTests {
         await #expect(throws: YtDlpFailure.timedOut) { try await resolve(with: fake, timeLimit: .milliseconds(500)) }
         #expect(ContinuousClock.now - started < .seconds(5))
         if let pid = fake.pid {
-            #expect(kill(pid, 0) != 0, "yt-dlp is still running")
+            #expect(await Self.ends(pid), "yt-dlp is still running")
         }
     }
 
@@ -99,7 +132,18 @@ struct YtDlpTests {
         let pid = try #require(fake.pid)
         resolving.cancel()
         await #expect(throws: CancellationError.self) { try await resolving.value }
-        #expect(kill(pid, 0) != 0, "yt-dlp is still running")
+        #expect(await Self.ends(pid), "yt-dlp is still running")
+    }
+
+    /// Whether `pid` is gone within a second (an exited process can take a moment to be reaped).
+    static func ends(_ pid: pid_t) async -> Bool {
+        for _ in 0..<50 {
+            if kill(pid, 0) != 0 {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return false
     }
 
     @Test func aMissingExecutableIsSaidSo() async throws {

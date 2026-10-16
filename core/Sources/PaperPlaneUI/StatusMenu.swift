@@ -58,12 +58,23 @@ public enum StatusMenu {
         items += [
             Item("Open Video…", .openVideo, key: "o"),
             Item("Play Copied Link", .playCopiedLink, key: "v"),
-            Item("Show Paper Plane Window", .showRemote, key: "1"),
+            Item("Show Paper Plane", .showRemote, key: "1"),
             .separator,
             Item("Settings…", .settings, key: ","),
             .separator,
             Item("Quit Paper Plane", .quit, key: "q"),
         ]
         return items
+    }
+}
+
+/// What a click on the menu bar icon does: a click opens and closes the panel, and a right-click
+/// or Control-click shows the menu, as in other menu bar apps.
+public enum MenuBarClick: Equatable, Sendable {
+    case togglePanel
+    case showMenu
+
+    public static func action(rightButton: Bool, control: Bool) -> MenuBarClick {
+        rightButton || control ? .showMenu : .togglePanel
     }
 }

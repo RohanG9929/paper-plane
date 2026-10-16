@@ -61,14 +61,17 @@ public struct RemoteView<RoutePicker: View>: View {
     var artwork: Image?
     var actions: RemoteActions
     var routePicker: RoutePicker
+    /// Off in the menu bar panel, where the popover draws the background, pointer included.
+    var drawsBackground: Bool
     @State private var isDropTarget = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(state: RemoteState, artwork: Image? = nil, actions: RemoteActions,
+    public init(state: RemoteState, artwork: Image? = nil, actions: RemoteActions, drawsBackground: Bool = true,
                 @ViewBuilder routePicker: () -> RoutePicker) {
         self.state = state
         self.artwork = artwork
         self.actions = actions
+        self.drawsBackground = drawsBackground
         self.routePicker = routePicker()
     }
 
@@ -88,7 +91,11 @@ public struct RemoteView<RoutePicker: View>: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: state.notice)
         .frame(width: Self.width)
-        .background(.background)
+        .background {
+            if drawsBackground {
+                Rectangle().fill(.background)
+            }
+        }
         .overlay {
             // The drop zone highlights itself; everywhere else the window gets a ring.
             if isDropTarget && (state.showsWelcome || state.phase != .idle) {

@@ -2,8 +2,21 @@ import Testing
 @testable import PaperPlaneUI
 
 struct StatusMenuTests {
-    static let always = ["Open Video…", "Play Copied Link", "Show Paper Plane Window", "-", "Settings…", "-",
+    static let always = ["Open Video…", "Play Copied Link", "Show Paper Plane", "-", "Settings…", "-",
                          "Quit Paper Plane"]
+
+    // The menu bar icon: a click opens and closes the panel, and the menu is a right-click or
+    // Control-click away, as in other menu bar apps.
+
+    @Test func aClickTogglesThePanel() {
+        #expect(MenuBarClick.action(rightButton: false, control: false) == .togglePanel)
+    }
+
+    @Test func aRightClickOrControlClickShowsTheMenu() {
+        #expect(MenuBarClick.action(rightButton: true, control: false) == .showMenu)
+        #expect(MenuBarClick.action(rightButton: false, control: true) == .showMenu)
+        #expect(MenuBarClick.action(rightButton: true, control: true) == .showMenu)
+    }
 
     @Test func withNothingPlayingItOffersToOpenSomething() {
         let items = StatusMenu.items(for: RemoteState())

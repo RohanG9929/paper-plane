@@ -67,6 +67,25 @@ struct RemoteSnapshotTests {
         ]
     }()
 
+    /// In the menu bar panel the popover draws the background, pointer included, so the remote
+    /// leaves its own off; anywhere else it keeps a solid one.
+    @Test func theRemoteCanLeaveTheBackgroundToItsContainer() throws {
+        // Drawn through AppKit, as the panel shows it: ImageRenderer paints a placeholder under
+        // views it can't draw (the drop target), which only a solid background hides.
+        func cornerAlpha(drawsBackground: Bool) throws -> CGFloat {
+            let view = NSHostingView(rootView: RemoteView(state: RemoteState(), actions: RemoteActions(),
+                                                          drawsBackground: drawsBackground) {
+                Image(systemName: "airplayvideo")
+            })
+            view.frame.size = view.fittingSize
+            let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return try #require(bitmap.colorAt(x: 1, y: 1)).alphaComponent
+        }
+        #expect(try cornerAlpha(drawsBackground: true) == 1)
+        #expect(try cornerAlpha(drawsBackground: false) == 0)
+    }
+
     @Test func rendersEveryStateInLightAndDark() throws {
         let folder = ProcessInfo.processInfo.environment["PAPERPLANE_SNAPSHOT_DIR"].map { URL(fileURLWithPath: $0) }
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("paperplane-snapshots-\(UUID().uuidString)")

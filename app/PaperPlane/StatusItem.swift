@@ -3,25 +3,33 @@ import Observation
 import PaperPlaneCore
 import PaperPlaneUI
 
-/// The menu bar icon (spec §1): its menu, built fresh each time it opens, and videos dropped on
-/// it (spec §4, step 1). The icon fills in while something is open.
+/// The menu bar icon (spec §1). A click opens and closes the panel; a right-click or
+/// Control-click shows its menu, built fresh each time. Videos dropped on it play too (spec §4,
+/// step 1). The icon fills in while something is open, and looks pressed while the panel is.
 @MainActor
 final class StatusItem: NSObject, NSMenuDelegate, NSWindowDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private let menu = NSMenu()
     private let controller: PlaybackController
     private let perform: @MainActor (StatusMenu.Item.Command) -> Void
     private let open: @MainActor ([URL]) -> Void
+    private let togglePanel: @MainActor () -> Void
+    private let closePanel: @MainActor () -> Void
 
     init(controller: PlaybackController, perform: @escaping @MainActor (StatusMenu.Item.Command) -> Void,
-         open: @escaping @MainActor ([URL]) -> Void) {
+         open: @escaping @MainActor ([URL]) -> Void, togglePanel: @escaping @MainActor () -> Void,
+         closePanel: @escaping @MainActor () -> Void) {
         self.controller = controller
         self.perform = perform
         self.open = open
+        self.togglePanel = togglePanel
+        self.closePanel = closePanel
         super.init()
-        let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        item.menu = menu
+        item.button?.target = self
+        item.button?.action = #selector(clicked)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         // The status bar window passes drags on to its delegate.
         item.button?.window?.registerForDraggedTypes([.fileURL, .URL]) // files, and links from a browser
         item.button?.window?.delegate = self
@@ -59,6 +67,28 @@ final class StatusItem: NSObject, NSMenuDelegate, NSWindowDelegate {
     @objc private func choose(_ sender: NSMenuItem) {
         if let command = sender.representedObject as? StatusMenu.Item.Command {
             perform(command)
+        }
+    }
+
+    /// What the panel hangs from.
+    var button: NSStatusBarButton? { item.button }
+
+    func setPanelOpen(_ isOpen: Bool) {
+        item.button?.highlight(isOpen)
+    }
+
+    @objc private func clicked() {
+        let event = NSApp.currentEvent
+        switch MenuBarClick.action(rightButton: event?.type == .rightMouseUp,
+                                   control: event?.modifierFlags.contains(.control) ?? false) {
+        case .togglePanel:
+            togglePanel()
+        case .showMenu:
+            closePanel()
+            // Attached only while it's open, so a plain click stays free for the panel.
+            item.menu = menu
+            item.button?.performClick(nil)
+            item.menu = nil
         }
     }
 

@@ -5,8 +5,8 @@ import PaperPlaneCore
 import PaperPlaneUI
 import UniformTypeIdentifiers
 
-/// A menu bar app (`LSUIElement`) on AppKit's own lifecycle: a status item that takes drops, the
-/// remote and Settings windows, and a main menu for their keyboard shortcuts.
+/// A menu bar app (`LSUIElement`) on AppKit's own lifecycle: a status item that opens the remote
+/// in a panel hanging from it, the Settings window, and a main menu for their keyboard shortcuts.
 @main
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -48,11 +48,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         welcomeSeen: { UserDefaults.standard.set(true, forKey: Key.welcomeShown) },
         showsTVHelp: !UserDefaults.standard.bool(forKey: Key.tvChosen),
         tvChosen: { UserDefaults.standard.set(true, forKey: Key.tvChosen) })
-    private lazy var remote = RemoteWindow(
-        controller: controller,
-        openVideo: { [weak self] in self?.chooseVideo() },
-        playCopiedLink: { [weak self] in self?.playCopiedLink() },
-        open: { [weak self] urls in self?.open(urls) })
+    private lazy var panel: MenuBarPanel = {
+        let panel = MenuBarPanel(
+            controller: controller,
+            anchor: { [weak self] in self?.statusItem?.button },
+            openVideo: { [weak self] in self?.chooseVideo() },
+            playCopiedLink: { [weak self] in self?.playCopiedLink() },
+            open: { [weak self] urls in self?.open(urls) })
+        panel.visibilityChanged = { [weak self] isOpen in self?.statusItem?.setPanelOpen(isOpen) }
+        return panel
+    }()
     private lazy var settingsWindow = SettingsWindow(store: settings)
     private var statusItem: StatusItem?
     private var nowPlaying: NowPlaying?
@@ -67,7 +72,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = mainMenu()
         statusItem = StatusItem(controller: controller,
                                 perform: { [weak self] in self?.perform($0) },
-                                open: { [weak self] in self?.open($0) })
+                                open: { [weak self] in self?.open($0) },
+                                togglePanel: { [weak self] in self?.panel.toggle() },
+                                closePanel: { [weak self] in self?.panel.close() })
         let nowPlaying = NowPlaying(controller: controller)
         nowPlaying.start()
         self.nowPlaying = nowPlaying
@@ -78,7 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         network.start(queue: .main)
         installBrowserHosts()
         startBridge()
-        remote.show()
+        // On the next turn of the run loop, once the menu bar has placed the icon to hang from.
+        DispatchQueue.main.async { [weak self] in self?.panel.show() }
         // At most once a day (spec §5.3), in the background.
         Task { await controller.updateYtDlpIfDue() }
     }
@@ -119,13 +127,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A video from the browser: the remote comes forward to choose the TV, as for a file, unless
+    /// A video from the browser: the panel opens to choose the TV, as for a file, unless
     /// it's one Paper Plane won't play. None once quitting has begun, when nothing would wait for
     /// its ffmpeg.
     private func play(_ request: PlayRequest) async -> PlayReply {
         guard !quitting else { return .failed("Paper Plane is quitting.") }
         if PlaybackController.refusal(of: request) == nil {
-            remote.show()
+            panel.show()
         }
         return await controller.play(request)
     }
@@ -133,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Play Copied Link, and ⌘V in the remote: a video copied in Finder, or a link (Milestone 4,
     /// decision 11).
     func playCopiedLink() {
-        remote.show()
+        panel.show()
         let pasteboard = NSPasteboard.general
         let files = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         if files.isEmpty {
@@ -160,10 +168,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
-    /// Plays the first video among `urls`. The remote opens each time, because the TV has to be
+    /// Plays the first video among `urls`. The panel opens each time, because the TV has to be
     /// picked again for every playback (docs/sony-test-results.md, row 9).
     func open(_ urls: [URL]) {
-        remote.show()
+        panel.show()
         controller.play(urls)
     }
 
@@ -173,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .stop: controller.stop()
         case .openVideo: chooseVideo()
         case .playCopiedLink: playCopiedLink()
-        case .showRemote: remote.show()
+        case .showRemote: panel.show()
         case .settings: settingsWindow.show()
         case .quit: NSApp.terminate(nil)
         case .selectAudio(let id): controller.selectAudio(id)
@@ -219,8 +227,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ]))
         main.addItem(menu("File", [
             item("Open Video…", #selector(openVideo), "o", target: self),
-            item("Show Paper Plane Window", #selector(showRemote), "1", target: self),
-            item("Close Window", #selector(NSWindow.performClose(_:)), "w"),
+            item("Show Paper Plane", #selector(showRemote), "1", target: self),
+            item("Close Window", #selector(closeWindow), "w", target: self),
         ]))
         main.addItem(menu("Edit", [
             item("Cut", #selector(NSText.cut(_:)), "x"),
@@ -240,6 +248,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showRemote() {
-        remote.show()
+        panel.show()
+    }
+
+    /// ⌘W: the panel when it's in front, otherwise the front window (Settings).
+    @objc private func closeWindow() {
+        if let window = panel.window, window.isKeyWindow {
+            panel.close()
+        } else {
+            NSApp.keyWindow?.performClose(nil)
+        }
     }
 }

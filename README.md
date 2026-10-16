@@ -24,7 +24,7 @@ MKVs, whatever's playing in Chrome or Brave, YouTube, a link you copied. If your
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/design/remote-tracks-dark.png">
-    <img src="docs/design/remote-tracks-light.png" alt="Paper Plane's remote window while a movie plays on the TV" width="420">
+    <img src="docs/design/remote-tracks-light.png" alt="Paper Plane's panel while a movie plays on the TV" width="420">
   </picture>
 </p>
 
@@ -70,7 +70,7 @@ For videos playing in Chrome or Brave:
 
 ### Drop a video, pick your TV
 
-Drop a file on the paper plane in the menu bar or on the remote, or use Open With → Paper Plane in Finder, then pick your TV with the AirPlay button. Anything ffmpeg can read works: MKV, MP4, WebM, AVI and the rest.
+Click the paper plane in the menu bar and drag a video into the panel that drops down, then pick your TV with the AirPlay button. Click the plane again (or press Esc) to put the panel away; right-click it for Settings and the rest. Finder's Open With → Paper Plane works too. Anything ffmpeg can read plays: MKV, MP4, WebM, AVI and the rest.
 
 Paper Plane copies what your TV can play and converts the rest. DTS and TrueHD soundtracks become audio the TV understands, VP9 and AV1 are re-encoded on the Mac's hardware encoder, and HDR stays HDR.
 

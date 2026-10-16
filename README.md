@@ -10,12 +10,16 @@ Paper Plane converts on the fly whatever your TV can't play, copying everything 
 
 ## Development
 
-You need macOS 14 or later on Apple Silicon, and Swift 6. The Command Line Tools are enough for now.
+You need macOS 14 or later on Apple Silicon, Swift 6 and Homebrew.
 
 ```bash
-brew install ffmpeg            # development and tests only; the app will bundle its own build
+brew install ffmpeg            # development and tests only
 scripts/make-test-media.sh     # generates test clips into testdata/media/
 scripts/test-core.sh           # runs the PaperPlaneCore tests
+
+brew install meson ninja autoconf automake libtool pkgconf
+scripts/build-ffmpeg.sh        # builds the ffmpeg the app ships into vendor/ffmpeg/ (a few minutes)
+scripts/check-ffmpeg.sh        # checks that build
 ```
 
 ## License

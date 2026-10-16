@@ -2,9 +2,13 @@
 xcuserdata/
 DerivedData/
 
-# Swift package build output
+# Swift package and app build output
 /core/.build/
 /core/.swiftpm/
+/build/
+
+# Bundled ffmpeg (scripts/build-ffmpeg.sh)
+/vendor/
 
 # Generated test clips (scripts/make-test-media.sh)
 /testdata/media/

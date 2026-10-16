@@ -36,7 +36,7 @@ public final class WebProxy: Sendable {
     }
 
     /// The input a proxied request belongs to: its host, the headers the site expects, and
-    /// whether the stream itself is on this Mac or the local network.
+    /// whether the stream itself (or the page it was found on) is on this Mac or the local network.
     private struct Origin: Sendable {
         var host: String
         var headers: [String: String]
@@ -48,7 +48,9 @@ public final class WebProxy: Sendable {
         var origins: [Origin] = []
         for item in original.inputs {
             let host = item.url.host() ?? ""
-            origins.append(Origin(host: host, headers: item.headers, isLocal: await offThePool { isLocal(host) }))
+            // A page's own address, not what yt-dlp found on it, decides (Milestone 4, decision 12).
+            let judged = original.page.map { $0.host() ?? "" } ?? host
+            origins.append(Origin(host: host, headers: item.headers, isLocal: await offThePool { isLocal(judged) }))
         }
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
@@ -76,7 +78,8 @@ public final class WebProxy: Sendable {
             guard !item.url.isFileURL, let proxied = proxyRoute.proxied(item.url, input: index) else { return item }
             return ResolvedInput.Input(url: proxied, isHLS: item.isHLS)
         }
-        return WebProxy(input: ResolvedInput(inputs: inputs, title: original.title), listener: listener, refusals: refusals)
+        return WebProxy(input: ResolvedInput(inputs: inputs, title: original.title, page: original.page), listener: listener,
+                        refusals: refusals)
     }
 
     public func stop() {

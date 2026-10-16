@@ -66,6 +66,34 @@ struct WebProxyTests {
         #expect(!requests.contains { $0.hasPrefix("127.0.0.1") })
     }
 
+    /// yt-dlp's answer for a page on the internet names a file on the local network: the page's
+    /// address decides, so it isn't fetched (Milestone 4, decision 12).
+    @Test func aPublicPageCantReachTheLocalNetwork() async throws {
+        let tools = try #require(TestSupport.tools)
+        let log = try TestSupport.makeTemporaryDirectory().appendingPathComponent("requests.log")
+        let server = try await HLSServer(directory: TestSupport.mediaDirectory, log: log)
+        defer { server.stop() }
+        var input = Self.web(server.url("h264_aac.mp4"))
+        input.page = URL(string: "https://videos.example/watch/1")!
+        let proxy = try await WebProxy.start(serving: input, isLocal: { $0 == "127.0.0.1" })
+        defer { proxy.stop() }
+        await #expect(throws: MediaProbeError.self) { try await MediaProbe(tools: tools).probe(proxy.input) }
+        #expect(Self.requests(in: log).isEmpty)
+    }
+
+    /// A page on the NAS still plays the NAS's video.
+    @Test func aLocalPageStillPlaysFromTheLocalNetwork() async throws {
+        let tools = try #require(TestSupport.tools)
+        let server = try await HLSServer(directory: TestSupport.mediaDirectory)
+        defer { server.stop() }
+        var input = Self.web(server.url("h264_aac.mp4"))
+        input.page = URL(string: "http://127.0.0.1:\(server.port)/videos.html")!
+        let proxy = try await WebProxy.start(serving: input, isLocal: { $0 == "127.0.0.1" })
+        defer { proxy.stop() }
+        let info = try await MediaProbe(tools: tools).probe(proxy.input)
+        #expect(info.video.count == 1)
+    }
+
     /// A redirect is a new request, and passes the same checks.
     @Test func checksWhereARedirectGoes() async throws {
         let tools = try #require(TestSupport.tools)

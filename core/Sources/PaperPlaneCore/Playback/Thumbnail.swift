@@ -6,8 +6,7 @@ public enum Thumbnail {
     /// such frame (corrupt input, audio only, past the end) or ffmpeg fails.
     public static func jpeg(tools: ToolPaths, input: ResolvedInput.Input, at seconds: Double,
                             width: Int = 640) async -> Data? {
-        let arguments = ["-hide_banner", "-nostdin", "-loglevel", "error"] + input.ffmpegOptions + [
-            "-ss", String(format: "%.3f", max(seconds, 0)), "-i", input.ffmpegLocation,
+        let arguments = ffmpegQuietArguments + input.ffmpegInputArguments(seek: seconds) + [
             "-map", "0:V:0", "-frames:v", "1", "-vf", "scale=\(width):-2",
             "-c:v", "mjpeg", "-q:v", "4", "-f", "image2pipe", "-",
         ]

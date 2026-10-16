@@ -9,7 +9,6 @@ import Foundation
 ///   `VIDEO-RANGE=PQ` variant that has no `FRAME-RATE`, and refuses HDR video declared as SDR.
 enum MasterPlaylist {
     static let fileName = "master.m3u8"
-    static let mediaPlaylistName = "index.m3u8"
 
     static func text(bandwidth: Int, initSegment: InitSegment, frameRate: Double?, videoRange: VideoRange) -> String {
         var attributes = ["BANDWIDTH=\(bandwidth)"]
@@ -29,7 +28,7 @@ enum MasterPlaylist {
             "#EXT-X-INDEPENDENT-SEGMENTS",
             "#EXT-X-START:TIME-OFFSET=0",
             "#EXT-X-STREAM-INF:" + attributes.joined(separator: ","),
-            mediaPlaylistName,
+            HLSFileNames.mediaPlaylist,
             "",
         ].joined(separator: "\n")
     }

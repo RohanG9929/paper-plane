@@ -40,9 +40,8 @@ public struct Transcoder: Sendable {
             let offset = try await sessionOffset(plan, input: input, start: start)
             let process = try BackgroundProcess(
                 tools.ffmpeg, arguments: plan.ffmpegArguments(input: input, start: start, output: folder))
-            session = TranscodeSession(
-                folder: folder, requestedStart: start, offset: offset, process: process,
-                segmentsBeforeReady: segmentsBeforeReady, frameRate: plan.frameRate, videoRange: plan.videoRange)
+            session = TranscodeSession(folder: folder, requestedStart: start, offset: offset, process: process,
+                                       plan: plan, segmentsBeforeReady: segmentsBeforeReady)
         } catch {
             try? FileManager.default.removeItem(at: folder)
             throw error
@@ -68,8 +67,7 @@ public struct Transcoder: Sendable {
             return start
         }
         let video = input.inputs[plan.video.input]
-        let arguments = ["-hide_banner", "-nostdin", "-loglevel", "error"] + video.ffmpegOptions + [
-            "-ss", String(format: "%.3f", start), "-i", video.ffmpegLocation,
+        let arguments = ffmpegQuietArguments + video.ffmpegInputArguments(seek: start) + [
             "-map", "0:\(plan.video.index)", "-c", "copy", "-frames:v", "1", "-f", "framecrc", "-",
         ]
         let result = try await ProcessRunner.run(tools.ffmpeg, arguments: arguments)
@@ -101,6 +99,7 @@ public struct Transcoder: Sendable {
     }
 }
 
+
 /// One ffmpeg run writing HLS into a session folder (a "session", spec §4.2).
 public final class TranscodeSession: Sendable {
     public let folder: URL
@@ -113,8 +112,8 @@ public final class TranscodeSession: Sendable {
     public let events: AsyncStream<TranscodeEvent>
 
     private struct State {
-        var isReady = false
-        var startFailure: (any Error)?
+        /// nil until the session is ready or has failed to start.
+        var startResult: Result<Void, any Error>?
         var readyWaiter: CheckedContinuation<Void, any Error>?
         var isStopping = false
     }
@@ -123,8 +122,8 @@ public final class TranscodeSession: Sendable {
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let monitor: Task<Void, Never>
 
-    init(folder: URL, requestedStart: Double, offset: Double, process: BackgroundProcess,
-         segmentsBeforeReady: Int, frameRate: Double?, videoRange: VideoRange) {
+    init(folder: URL, requestedStart: Double, offset: Double, process: BackgroundProcess, plan: ConversionPlan,
+         segmentsBeforeReady: Int) {
         self.folder = folder
         self.requestedStart = requestedStart
         self.offset = offset
@@ -133,8 +132,8 @@ public final class TranscodeSession: Sendable {
         self.events = events
         let state = state
         monitor = Task.detached {
-            await Self.watch(folder: folder, process: process, state: state, continuation: continuation,
-                             segmentsBeforeReady: segmentsBeforeReady, frameRate: frameRate, videoRange: videoRange)
+            await Self.watch(folder: folder, process: process, state: state, continuation: continuation, plan: plan,
+                             segmentsBeforeReady: segmentsBeforeReady)
         }
     }
 
@@ -158,8 +157,7 @@ public final class TranscodeSession: Sendable {
             process.send(SIGTERM)
             process.send(SIGCONT) // a paused ffmpeg only acts on SIGTERM once it runs again
         }
-        let process = process
-        let escalation = Task {
+        let escalation = Task { [process] in
             try await Task.sleep(for: .seconds(5))
             process.send(SIGKILL)
         }
@@ -173,11 +171,11 @@ public final class TranscodeSession: Sendable {
 
     func waitUntilReady() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            let result: Result<Void, any Error>? = state.withLock { state in
-                if state.isReady { return .success(()) }
-                if let failure = state.startFailure { return .failure(failure) }
-                state.readyWaiter = continuation
-                return nil
+            let result = state.withLock { state in
+                if state.startResult == nil {
+                    state.readyWaiter = continuation
+                }
+                return state.startResult
             }
             if let result {
                 continuation.resume(with: result)
@@ -191,13 +189,11 @@ public final class TranscodeSession: Sendable {
         Self.finishStart(state, with: .failure(CancellationError()))
     }
 
+    /// Settles the start once; later calls do nothing.
     private static func finishStart(_ state: OSAllocatedUnfairLock<State>, with result: Result<Void, any Error>) {
         let waiter = state.withLock { state -> CheckedContinuation<Void, any Error>? in
-            guard !state.isReady, state.startFailure == nil else { return nil }
-            switch result {
-            case .success: state.isReady = true
-            case .failure(let error): state.startFailure = error
-            }
+            guard state.startResult == nil else { return nil }
+            state.startResult = result
             defer { state.readyWaiter = nil }
             return state.readyWaiter
         }
@@ -207,33 +203,37 @@ public final class TranscodeSession: Sendable {
     // MARK: - Watching ffmpeg
 
     /// Polls ffmpeg's playlist until ffmpeg exits, reporting each new segment, and writes the
-    /// master playlist once enough segments exist.
+    /// master playlist once enough segments exist. Polls every 200 ms until then, and every
+    /// second after: only the remote's "converted so far" depends on it.
     private static func watch(folder: URL, process: BackgroundProcess, state: OSAllocatedUnfairLock<State>,
-                              continuation: AsyncStream<TranscodeEvent>.Continuation,
-                              segmentsBeforeReady: Int, frameRate: Double?, videoRange: VideoRange) async {
-        let playlistURL = folder.appendingPathComponent(MasterPlaylist.mediaPlaylistName)
+                              continuation: AsyncStream<TranscodeEvent>.Continuation, plan: ConversionPlan,
+                              segmentsBeforeReady: Int) async {
+        let playlistURL = folder.appendingPathComponent(HLSFileNames.mediaPlaylist)
         var reported = 0
         var end = 0.0
         var sizes: [(bytes: Int, duration: Double)] = []
-        var isReady = false
+        var wroteMaster = false
         while true {
             // Read the exit status before the playlist, so the last segments are never missed.
             let exitStatus = process.exitStatus
             let playlist = MediaPlaylist(parsing: (try? String(contentsOf: playlistURL, encoding: .utf8)) ?? "")
             for segment in playlist.segments.dropFirst(reported) {
                 end += segment.duration
-                sizes.append((fileSize(folder.appendingPathComponent(segment.uri)), segment.duration))
+                if !wroteMaster {
+                    sizes.append((fileSize(folder.appendingPathComponent(segment.uri)), segment.duration))
+                }
                 continuation.yield(.segment(index: reported, end: end))
                 reported += 1
             }
 
-            if !isReady, reported >= segmentsBeforeReady || (exitStatus == 0 && reported > 0) {
-                isReady = true
+            if !wroteMaster, reported >= segmentsBeforeReady || (exitStatus == 0 && reported > 0) {
+                wroteMaster = true
+                let initSegment = folder.appendingPathComponent(HLSFileNames.initSegment)
                 let master = MasterPlaylist.text(
                     bandwidth: MasterPlaylist.bandwidth(segmentSizes: sizes),
-                    initSegment: InitSegment((try? Data(contentsOf: folder.appendingPathComponent("init.mp4"))) ?? Data()),
-                    frameRate: frameRate,
-                    videoRange: videoRange)
+                    initSegment: InitSegment((try? Data(contentsOf: initSegment)) ?? Data()),
+                    frameRate: plan.frameRate,
+                    videoRange: plan.videoRange)
                 do {
                     try master.write(to: folder.appendingPathComponent(MasterPlaylist.fileName),
                                      atomically: true, encoding: .utf8)
@@ -249,7 +249,7 @@ public final class TranscodeSession: Sendable {
                     continuation.yield(.finished)
                 } else if !stopping {
                     let message = Redaction.summary(of: process.stderr)
-                    if isReady {
+                    if wroteMaster {
                         continuation.yield(.failed(message))
                     } else {
                         finishStart(state, with: .failure(TranscodeError.ffmpegFailed(status: exitStatus, message: message)))
@@ -258,7 +258,7 @@ public final class TranscodeSession: Sendable {
                 finishStart(state, with: .failure(CancellationError())) // no-op unless stopped before ready
                 break
             }
-            try? await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(wroteMaster ? 1_000 : 200))
         }
         continuation.finish()
     }

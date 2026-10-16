@@ -1,5 +1,23 @@
 import Foundation
 
+/// What every ffmpeg run starts with: no banner, no stdin, no progress, errors only.
+let ffmpegQuietArguments = ["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error"]
+
+/// The names ffmpeg writes in a session folder and Paper Plane reads back.
+enum HLSFileNames {
+    static let mediaPlaylist = "index.m3u8"
+    static let initSegment = "init.mp4"
+    static let segmentPattern = "seg_%05d.m4s"
+}
+
+extension ResolvedInput.Input {
+    /// This input's options, a seek when `seek` > 0 (before `-i`, so ffmpeg jumps straight
+    /// there), and `-i`.
+    func ffmpegInputArguments(seek: Double) -> [String] {
+        ffmpegOptions + (seek > 0 ? ["-ss", String(format: "%.3f", seek)] : []) + ["-i", ffmpegLocation]
+    }
+}
+
 extension ConversionPlan {
     /// HLS segment length target, in seconds.
     public static let segmentSeconds = 6
@@ -13,13 +31,9 @@ extension ConversionPlan {
     /// event playlist (`index.m3u8`, `init.mp4`, `seg_00000.m4s`, …) into `output`,
     /// starting `start` seconds into the media.
     public func ffmpegArguments(input: ResolvedInput, start: Double, output: URL) -> [String] {
-        var args = ["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error"]
+        var args = ffmpegQuietArguments
         for item in input.inputs {
-            args += item.ffmpegOptions
-            if start > 0 {
-                args += ["-ss", String(format: "%.3f", start)]
-            }
-            args += ["-i", item.ffmpegLocation]
+            args += item.ffmpegInputArguments(seek: start)
         }
 
         args += ["-map", video.mapSpecifier]
@@ -37,11 +51,11 @@ extension ConversionPlan {
             "-hls_time", String(Self.segmentSeconds),
             "-hls_playlist_type", "event",
             "-hls_segment_type", "fmp4",
-            "-hls_fmp4_init_filename", "init.mp4",
-            "-hls_segment_filename", output.appendingPathComponent("seg_%05d.m4s").path,
+            "-hls_fmp4_init_filename", HLSFileNames.initSegment,
+            "-hls_segment_filename", output.appendingPathComponent(HLSFileNames.segmentPattern).path,
             "-hls_flags", "independent_segments+temp_file",
             "-start_number", "0",
-            output.appendingPathComponent("index.m3u8").path,
+            output.appendingPathComponent(HLSFileNames.mediaPlaylist).path,
         ]
         return args
     }

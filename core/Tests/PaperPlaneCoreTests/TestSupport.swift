@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 @testable import PaperPlaneCore
 
@@ -27,6 +28,19 @@ enum TestSupport {
             .appendingPathComponent("paperplane-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    /// Waits up to 10 s for Apple's player to accept `url`, as the app's AVPlayer must before
+    /// AirPlay can hand the stream to the TV.
+    @MainActor
+    static func playerItemStatus(_ url: URL) async -> AVPlayerItem.Status {
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
+        player.isMuted = true
+        for _ in 0..<100 where item.status == .unknown {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return item.status
     }
 
     /// Whether the ffmpeg under test has a filter, e.g. `zscale` (needed for HDR → SDR tone mapping).

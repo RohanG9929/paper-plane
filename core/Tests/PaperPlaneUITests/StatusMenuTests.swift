@@ -2,7 +2,7 @@ import Testing
 @testable import PaperPlaneUI
 
 struct StatusMenuTests {
-    static let always = ["Open Video…", "Show Remote", "-", "Settings…", "-", "Quit Paper Plane"]
+    static let always = ["Open Video…", "Show Paper Plane Window", "-", "Settings…", "-", "Quit Paper Plane"]
 
     @Test func withNothingPlayingItOffersToOpenSomething() {
         #expect(StatusMenu.items(for: RemoteState()).map(\.title) == Self.always)

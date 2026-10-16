@@ -32,8 +32,8 @@ public struct TrackChoice: Equatable, Sendable {
 public enum BurnIn: Equatable, Sendable {
     /// A picture track (PGS, VobSub, DVB), overlaid straight from the file.
     case picture(TrackRef)
-    /// A text track, drawn by libass from the session's `burn-in.vtt` (the "Always burn in
-    /// subtitles" setting, for TVs that don't show subtitle tracks).
+    /// A text track, drawn by libass from the session's `burn-in.vtt` (the "Always draw
+    /// subtitles into the picture" setting, for TVs that don't show subtitle tracks).
     case text
 }
 

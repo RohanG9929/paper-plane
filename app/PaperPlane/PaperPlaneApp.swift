@@ -135,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ]))
         main.addItem(menu("File", [
             item("Open Video…", #selector(openVideo), "o", target: self),
-            item("Show Remote", #selector(showRemote), "1", target: self),
+            item("Show Paper Plane Window", #selector(showRemote), "1", target: self),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w"),
         ]))
         main.addItem(menu("Edit", [

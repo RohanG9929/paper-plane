@@ -43,8 +43,8 @@ public final class SettingsStore {
     }
 }
 
-/// Settings: three switches, each saying what it's for. They apply from the next video or
-/// track change.
+/// Settings: three switches, each saying what it's for. They apply from the next video (sooner
+/// whenever a new session starts, but that isn't promised).
 public struct SettingsView: View {
     @Bindable var store: SettingsStore
 
@@ -56,13 +56,13 @@ public struct SettingsView: View {
         Form {
             Section {
                 setting("Allow surround sound", isOn: $store.allowSurround,
-                        "Sends Dolby Digital 5.1 when the video has it. Many TVs play only stereo over AirPlay.")
+                        "Sends 5.1 surround sound when the video has it. Many TVs play only stereo over AirPlay.")
                 setting("Convert HDR to SDR", isOn: $store.convertHDRToSDR,
-                        "For TVs that show HDR video too dark or washed out. Your Mac does more work.")
-                setting("Always burn in subtitles", isOn: $store.alwaysBurnInSubtitles,
-                        "Draws subtitles into the picture, for TVs that don't show subtitle tracks. Your Mac does more work.")
+                        "For TVs that show HDR video too dark or washed out: converts it to standard dynamic range. Your Mac does more work.")
+                setting("Always draw subtitles into the picture", isOn: $store.alwaysBurnInSubtitles,
+                        "For TVs that don't show subtitle tracks. Your Mac does more work.")
             } footer: {
-                Text("Changes apply from the next video, seek or track change.")
+                Text("Changes apply from the next video you play.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

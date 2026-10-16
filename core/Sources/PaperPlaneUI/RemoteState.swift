@@ -117,21 +117,29 @@ public struct RemoteState: Equatable, Sendable {
         canChooseTracks && !subtitleChoices.isEmpty
     }
 
+    /// The name of the speech-bubble button: what its menu offers.
+    public var tracksLabel: String {
+        switch (showsAudioChoices, showsSubtitleChoices) {
+        case (true, true): "Audio and Subtitles"
+        case (true, false): "Audio"
+        default: "Subtitles"
+        }
+    }
+
     /// A seek or track change is starting a new session.
     public var isLoading: Bool {
         loading != nil && canChooseTracks
     }
 
-    /// "Ready to play from here up to 0:40" while the conversion is behind the end, so the
-    /// lighter part of the track explains itself. Empty once everything is converted or when
-    /// unknown.
+    /// "Ready up to 0:40" while the conversion is behind the end, so the lighter part of the
+    /// track explains itself. Empty once everything is converted or when unknown.
     public var convertedNote: String {
         let from = convertedFrom ?? 0
         guard let converted, let duration, converted < duration || from > 0 else { return "" }
         if from > 0 {
-            return "Converted from \(TimeText.clock(from)) up to \(TimeText.clock(converted)); a jump elsewhere takes a moment"
+            return "Ready from \(TimeText.clock(from)) to \(TimeText.clock(converted)); a jump elsewhere takes a moment"
         }
-        return "Converted up to \(TimeText.clock(converted)); a jump further on takes a moment"
+        return "Ready up to \(TimeText.clock(converted)); a jump further on takes a moment"
     }
 
     public var status: String {

@@ -22,7 +22,8 @@ extension PlaybackController {
             converted: convertedEnd, volume: volume, showsWelcome: showsWelcome, notice: notice,
             audioChoices: audioChoices, audio: audio?.id, subtitleChoices: subtitleChoices, subtitle: subtitle,
             loading: loading, canShowLog: failureLog != nil, showsTVHelp: showsTVHelp,
-            convertedFrom: stream?.session.offset)
+            // From the oldest segment still on disk, as seeking measures it.
+            convertedFrom: stream.map { $0.session.offset + (segments.first?.start ?? 0) })
     }
 
     // MARK: - Seeking
@@ -67,7 +68,8 @@ extension PlaybackController {
     public func selectAudio(_ id: String) {
         guard stream != nil, let track = audioTracks.first(where: { $0.ref.id == id }), track.ref != audio else { return }
         audio = track.ref
-        restart(at: nil, loading: "Switching to \(track.displayName)…")
+        let name = audioChoices.first { $0.id == id }?.name ?? track.displayName // as the menus name it
+        restart(at: nil, loading: "Switching to \(name)…")
     }
 
     /// Shows the subtitles with `SubtitleOption.id` `id`, or none. Text subtitles the session
@@ -91,7 +93,7 @@ extension PlaybackController {
         subtitleOptions.first { $0.id == id }
     }
 
-    /// Pictures are always drawn into the video; text is with "Always burn in subtitles".
+    /// Pictures are always drawn into the video; text is with "Always draw subtitles into the picture".
     func burnsIn(_ option: SubtitleOption) -> Bool {
         !option.isText || environment.settings().alwaysBurnInSubtitles
     }
@@ -222,7 +224,7 @@ extension PlaybackController {
                 segments.removeFirst(old.count)
             }
         }
-        if free < 1_000_000_000, !warnedAboutSpace {
+        if window != SegmentWindow(), !warnedAboutSpace { // keeping less ahead than usual
             warnedAboutSpace = true
             show(notice: "Your Mac is low on disk space, so Paper Plane converts only a few minutes ahead.")
         }

@@ -58,6 +58,7 @@ public struct RemoteView<RoutePicker: View>: View {
     var actions: RemoteActions
     var routePicker: RoutePicker
     @State private var isDropTarget = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(state: RemoteState, artwork: Image? = nil, actions: RemoteActions,
                 @ViewBuilder routePicker: () -> RoutePicker) {
@@ -81,13 +82,13 @@ public struct RemoteView<RoutePicker: View>: View {
                 NowPlayingCard(state: state, artwork: artwork, actions: actions, routePicker: routePicker)
             }
         }
-        .animation(.easeOut(duration: 0.2), value: state.notice)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: state.notice)
         .frame(width: Self.width)
         .background(.background)
         .overlay {
             // The drop zone highlights itself; everywhere else the window gets a ring.
             if isDropTarget && (state.showsWelcome || state.phase != .idle) {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(.tint, lineWidth: 3)
                     .padding(4)
             }
@@ -129,9 +130,9 @@ struct NoticeBanner: View {
         .padding(.leading, 12)
         .padding(.trailing, 6)
         .padding(.vertical, 7)
-        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 20)
-        .padding(.top, 8)
+        .padding(.top, 20) // the same margin as the card below it
         .onAppear {
             AccessibilityNotification.Announcement(message).post()
         }
@@ -153,7 +154,7 @@ struct WelcomeView: View {
             }
             VStack(alignment: .leading, spacing: 16) {
                 step("film.stack", "Drop a video on this window",
-                     "MKV, MP4, WebM and more. Paper Plane converts whatever your TV can't play.")
+                     "MKV, MP4, WebM and more. Paper Plane converts them for AirPlay as they play.")
                 step("airplayvideo", "Choose your TV",
                      "Use the AirPlay button. The first time, your TV may show a code to type on your Mac.")
                 step("network", "Allow local network access",
@@ -167,7 +168,8 @@ struct WelcomeView: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(28)
+        .padding(.horizontal, 20) // the card's margins
+        .padding(.vertical, 28)
     }
 
     private func step(_ symbol: String, _ title: String, _ detail: String) -> some View {
@@ -175,7 +177,7 @@ struct WelcomeView: View {
             Image(systemName: symbol)
                 .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(.tint)
-                .frame(width: 28)
+                .frame(width: 28, alignment: .leading) // in line with the heading
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.headline)
@@ -218,7 +220,7 @@ struct DropZone: View {
                 .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
                 .foregroundStyle(isTargeted ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary))
         }
-        .padding(16)
+        .padding(20)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Drop a video here to play it on your TV")
     }
@@ -273,13 +275,13 @@ struct NowPlayingCard<RoutePicker: View>: View {
 
     private var chooseTVCallout: some View {
         HStack {
-            Text("Click the AirPlay button below and pick your TV. Paper Plane never plays on this Mac.")
+            Text("Click the AirPlay button below and pick your TV. The video starts once the TV is connected.")
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     /// Stop on the left, the AirPlay button (and the audio and subtitle menu) on the right, and
@@ -361,8 +363,7 @@ struct NowPlayingCard<RoutePicker: View>: View {
             HStack {
                 if state.canShowLog {
                     Button("Show Log", action: actions.showLog)
-                        .buttonStyle(RemoteButtonStyle())
-                        .foregroundStyle(.tint)
+                        .controlSize(.large)
                         .help("Show the details in Finder, for a bug report")
                 }
                 Spacer()
@@ -384,28 +385,34 @@ struct StatusLine: View {
 
     var body: some View {
         switch state.phase {
-        case _ where state.isLoading:
-            label("hourglass", color: .secondary)
-        case .preparing:
-            label("hourglass", color: .secondary)
+        case _ where state.isLoading, .preparing:
+            label("hourglass")
         case .choosingTV:
-            label("airplayvideo", color: .tint, weight: .semibold)
+            label("airplayvideo", isNextStep: true)
         case .playing:
-            label("tv", color: .secondary)
+            label("tv")
         case .paused:
-            label("pause.circle", color: .secondary)
+            label("pause.circle")
         case .failed, .idle:
             EmptyView() // a failure is spelled out below the header
         }
     }
 
-    private func label(_ symbol: String, color: some ShapeStyle, weight: Font.Weight = .medium) -> some View {
-        Label(state.status, systemImage: symbol)
-            .symbolVariant(.none)
-            .font(.caption.weight(weight))
-            .foregroundStyle(color)
-            .lineLimit(2)
-            .fixedSize(horizontal: false, vertical: true)
+    /// The next step's icon takes the accent colour; its words stay in the text colour, which
+    /// reads better than the accent at caption size.
+    private func label(_ symbol: String, isNextStep: Bool = false) -> some View {
+        Label {
+            Text(state.status)
+                .foregroundStyle(isNextStep ? .primary : .secondary)
+        } icon: {
+            Image(systemName: symbol)
+                .symbolVariant(.none)
+                .foregroundStyle(isNextStep ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .frame(width: 16) // every icon as wide, so the words line up
+        }
+        .font(.caption.weight(isNextStep ? .semibold : .medium))
+        .lineLimit(2)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -425,9 +432,9 @@ struct Artwork: View {
             }
         }
         .frame(width: 128, height: 72)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.primary.opacity(0.08))
+            RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.primary.opacity(0.08))
         }
         .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         .accessibilityHidden(true)
@@ -521,8 +528,8 @@ struct TracksMenu: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .accessibilityLabel("Audio and Subtitles")
-        .help("Audio and Subtitles")
+        .accessibilityLabel(state.tracksLabel)
+        .help(state.tracksLabel)
     }
 }
 
@@ -589,7 +596,7 @@ struct Scrubber: View {
                     Capsule().fill(.quaternary)
                     Capsule().fill(.tertiary).frame(width: width * (ready - readyFrom)).offset(x: width * readyFrom)
                     Capsule().fill(state.canControlPlayback ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                        .frame(width: max(6, width * played))
+                        .frame(width: played > 0 ? max(6, width * played) : 0) // no stub at 0:00
                 }
                 .frame(height: dragFraction == nil ? 4 : 6)
                 .frame(maxHeight: .infinity)

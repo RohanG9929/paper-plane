@@ -109,7 +109,7 @@ struct PlaybackControllerTests {
         offline.play([URL(fileURLWithPath: "/Movies/a.mkv")])
         await Self.eventually { offline.phase != .preparing }
         #expect(offline.phase == .failed(
-            "Your Mac isn't on a network, so the TV can't reach it. Connect to Wi-Fi and try again."))
+            "Your Mac isn't on a network, so the TV can't reach it. Connect to your network and try again."))
         #expect(logged.withLock { $0 } == 0) // nothing for a bug report: these explain themselves
         #expect(!offline.remoteState.canShowLog)
     }
@@ -174,14 +174,15 @@ struct PlaybackControllerMediaTests {
             = { pipeline, media, request in
                 try await pipeline.start(media, at: request.start, audio: request.audio, burnIn: request.burnIn,
                                          subtitles: request.subtitles)
-            }
+            },
+        saveLog: @escaping @Sendable (String, any Error) -> URL? = { _, _ in nil }
     ) throws -> PlaybackController.Environment {
         let tools = try #require(ToolPaths.locate())
         return PlaybackController.Environment(
             tools: { tools }, host: host,
             folders: SessionFolders(root: FileManager.default.temporaryDirectory.appendingPathComponent("pp-\(UUID())")),
             settings: { settings }, extractSubtitles: extractSubtitles, startStream: startStream, freeSpace: freeSpace,
-            saveLog: { _, _ in nil })
+            saveLog: saveLog)
     }
 
     /// Waits without heeding cancellation, as ffmpeg's own shutdown does.
@@ -288,6 +289,7 @@ struct PlaybackControllerMediaTests {
     /// A stream the Mac's player refuses (here an HDR master playlist with no FRAME-RATE, which
     /// AVFoundation rejects) ends in a plain message instead of waiting for a TV forever.
     @Test func aStreamThePlayerRefusesEndsInAPlainMessage() async throws {
+        let logged = OSAllocatedUnfairLock<String?>(initialState: nil)
         let environment = try Self.environment(startStream: { pipeline, media, request in
             let stream = try await pipeline.start(media, at: request.start)
             let master = stream.session.folder.appendingPathComponent("master.m3u8")
@@ -296,6 +298,9 @@ struct PlaybackControllerMediaTests {
                 .replacingOccurrences(of: "VIDEO-RANGE=SDR", with: "VIDEO-RANGE=PQ")
             try refused.write(to: master, atomically: true, encoding: .utf8)
             return stream
+        }, saveLog: { message, error in
+            logged.withLock { $0 = "\(message) | \(error)" }
+            return URL(fileURLWithPath: "/tmp/log.txt")
         })
         let controller = PlaybackController(environment: environment, showsWelcome: false, welcomeSeen: {})
         controller.player.isMuted = true
@@ -305,6 +310,9 @@ struct PlaybackControllerMediaTests {
         }
         #expect(controller.phase == .failed("Paper Plane couldn't play this video. Try another file."))
         #expect(controller.title == "h264_aac")
+        // Show Log has the player's reason, for a bug report.
+        #expect(controller.remoteState.canShowLog)
+        #expect(logged.withLock { $0 }?.contains("The player stopped") == true)
         await controller.shutDown()
     }
 
@@ -479,8 +487,13 @@ struct PlaybackControllerMediaTests {
     /// A subtitle choice waiting on a slow conversion, then Stop: the abandoned choice must not
     /// leave a notice or converted files behind on the idle remote (or the next video).
     @Test func aStoppedSubtitleChoiceLeavesNoTrace() async throws {
+        // Converting finishes only once the test says so, ignoring cancellation as ffmpeg's does. (A
+        // fixed delay starts at play() and could be over under load before the choice is made.)
+        let released = OSAllocatedUnfairLock(initialState: false)
         let environment = try Self.environment(extractSubtitles: { pipeline, _ in
-            await Self.uncancellableDelay(0.5)
+            while !released.withLock({ $0 }) {
+                await Self.uncancellableDelay(0.05)
+            }
             return SubtitleFiles(folder: pipeline.folders.root, files: [:])
         })
         let controller = try await playingController(UITestMedia.file("h264_ac3_51.mkv"), environment: environment)
@@ -488,6 +501,7 @@ struct PlaybackControllerMediaTests {
         #expect(controller.loading != nil) // waiting for the conversion
         try await Task.sleep(for: .milliseconds(100))
         controller.stop()
+        released.withLock { $0 = true }
         try await Task.sleep(for: .seconds(1))
         #expect(controller.notice == nil)
         #expect(controller.subtitleFiles == nil)
@@ -550,6 +564,19 @@ struct PlaybackControllerMediaTests {
         #expect(Self.sessionFolders(in: environment).count == 1)
         await controller.shutDown()
         #expect(Self.sessionFolders(in: environment).isEmpty)
+    }
+
+    /// Between 1 and 2 GB free the window already keeps less ahead, so the user hears why then.
+    @Test func theLowSpaceNoticeComesWithTheSmallerWindow() async throws {
+        let controller = try await playingController(environment: try Self.environment(freeSpace: { 1_500_000_000 }))
+        controller.manageWindow()
+        #expect(controller.notice == "Your Mac is low on disk space, so Paper Plane converts only a few minutes ahead.")
+        await controller.shutDown()
+    }
+
+    @Test func somethingUnexpectedSaysWhatToDoWithoutTheErrorText() {
+        struct Odd: Error {}
+        #expect(PlaybackError.message(for: Odd()) == "Something went wrong. Try again, or choose another video.")
     }
 
     @Test func switchingAudioStartsANewSessionWithIt() async throws {
@@ -658,6 +685,7 @@ struct PlaybackControllerMediaTests {
         controller.manageWindow()
         #expect(!controller.conversionPaused) // 6 s ahead: converting again
         #expect(controller.segments.first?.index == 9) // 0–8 ended more than 300 s before 360
+        #expect(controller.remoteState.convertedFrom == 54) // the scrubber doesn't show deleted parts as ready
         #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("seg_00000.m4s").path))
         #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("seg_00001.m4s").path))
 

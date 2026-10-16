@@ -13,7 +13,7 @@ Paper Plane converts on the fly whatever your TV can't play, copying everything 
 - Drop a video on the paper plane in the menu bar or on the remote window, or use Open With → Paper Plane in Finder. Then pick your TV with the AirPlay button.
 - Seek anywhere. Past what's converted so far, Paper Plane starts converting from there, which takes a few seconds.
 - The speech-bubble button switches the audio track and the subtitles, including `Movie.srt` and `Movie.en.srt` files beside the video.
-- Settings (in the menu bar menu) has three switches for TVs that differ from the one Paper Plane was tested with: surround sound, HDR to SDR, and burning in subtitles.
+- Settings (in the menu bar menu) has three switches for TVs that differ from the one Paper Plane was tested with: surround sound, HDR to SDR, and drawing subtitles into the picture.
 - If something goes wrong, Show Log reveals a log in `~/Library/Logs/Paper Plane/` for a bug report. It leaves out cookies, passwords and your home folder's path.
 - Your Mac stays awake while the TV plays, but closing a laptop's lid still puts it to sleep and stops the video.
 

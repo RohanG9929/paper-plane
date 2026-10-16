@@ -72,7 +72,7 @@ struct RemoteStateTests {
     }
 
     @Test func explainsHowFarYouCanSeek() {
-        #expect(Self.state(.playing).convertedNote == "Converted up to 0:40; a jump further on takes a moment")
+        #expect(Self.state(.playing).convertedNote == "Ready up to 0:40; a jump further on takes a moment")
         var finished = Self.state(.playing)
         finished.converted = 100
         #expect(finished.convertedNote == "")
@@ -119,9 +119,20 @@ struct RemoteStateTests {
     @Test func theConvertedPartStartsWhereTheSessionDoes() {
         var state = Self.state(.playing)
         state.convertedFrom = 30
-        #expect(state.convertedNote == "Converted from 0:30 up to 0:40; a jump elsewhere takes a moment")
+        #expect(state.convertedNote == "Ready from 0:30 to 0:40; a jump elsewhere takes a moment")
         state.convertedFrom = 0
-        #expect(state.convertedNote == "Converted up to 0:40; a jump further on takes a moment")
+        #expect(state.convertedNote == "Ready up to 0:40; a jump further on takes a moment")
+    }
+
+    /// The speech-bubble button is named for what it offers.
+    @Test func theTracksButtonIsNamedForWhatItOffers() {
+        var state = Self.state(.playing)
+        state.subtitleChoices = [.init(id: "s", name: "English")]
+        #expect(state.tracksLabel == "Subtitles")
+        state.audioChoices = [.init(id: "a", name: "English"), .init(id: "b", name: "French")]
+        #expect(state.tracksLabel == "Audio and Subtitles")
+        state.subtitleChoices = []
+        #expect(state.tracksLabel == "Audio")
     }
 
     @Test func tracksCanBeChosenOnceTheVideoIsLoaded() {

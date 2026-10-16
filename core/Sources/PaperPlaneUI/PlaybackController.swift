@@ -526,7 +526,7 @@ public final class PlaybackController {
     private func playerFailed(_ item: AVPlayerItem, reason: String) {
         guard player.currentItem === item else { return }
         log.error("The player failed: \(reason, privacy: .private)")
-        fail("Paper Plane couldn't play this video. Try another file.")
+        fail("Paper Plane couldn't play this video. Try another file.", error: PlayerFailed(reason: reason))
     }
 
     private func timeChanged(_ time: CMTime) {
@@ -538,6 +538,12 @@ public final class PlaybackController {
     private func updateSleep() {
         sleep.hold(phase == .onTV && !isPaused)
     }
+}
+
+/// AVFoundation refused the stream or couldn't play on, for Show Log.
+struct PlayerFailed: Error, CustomStringConvertible {
+    var reason: String
+    var description: String { "The player stopped: \(reason)" }
 }
 
 /// ffmpeg failed after the video started playing. `message` is its redacted stderr.
@@ -554,11 +560,11 @@ enum PlaybackError: Error {
     static func message(for error: any Error) -> String {
         switch error {
         case PlaybackError.noFFmpeg: "Paper Plane's video converter is missing. Reinstall Paper Plane."
-        case PlaybackError.offline: "Your Mac isn't on a network, so the TV can't reach it. Connect to Wi-Fi and try again."
+        case PlaybackError.offline: "Your Mac isn't on a network, so the TV can't reach it. Connect to your network and try again."
         case PlanError.noVideoTrack: "This file has no video."
         case is MediaProbeError: "Paper Plane couldn't read this file. It may be damaged or not a video."
         case is TranscodeError: "Paper Plane couldn't convert this video. Try another file."
-        default: "Something went wrong (\(error.localizedDescription)). Try again."
+        default: "Something went wrong. Try again, or choose another video." // the details are in Show Log
         }
     }
 }

@@ -1,5 +1,3 @@
-import Foundation
-
 /// The menu bar icon's menu, as plain values the app turns into an NSMenu: what's playing and
 /// its tracks first, then opening things, then Settings and Quit.
 public enum StatusMenu {
@@ -59,7 +57,7 @@ public enum StatusMenu {
         }
         items += [
             Item("Open Video…", .openVideo, key: "o"),
-            Item("Show Remote", .showRemote, key: "1"),
+            Item("Show Paper Plane Window", .showRemote, key: "1"),
             .separator,
             Item("Settings…", .settings, key: ","),
             .separator,

@@ -532,6 +532,9 @@ struct BridgeServerTests {
         let server = try await BridgeServer.start(at: socket) { _ in .ok }
         defer { server.stop() }
         #expect(await BridgeFixtures.relay(BridgeFixtures.play, socket: socket) == PlayReply.ok.encoded())
+        // A folder that was already there is closed to others too.
+        let folder = try FileManager.default.attributesOfItem(atPath: socket.deletingLastPathComponent().path)
+        #expect(folder[.posixPermissions] as? Int == 0o700)
     }
 
     @Test func refusesWhatItCantReadWithoutAskingThePlayer() async throws {
@@ -562,8 +565,11 @@ struct BridgeServerTests {
         let socket = BridgeFixtures.socket()
         let server = try await BridgeServer.start(at: socket, requestLimit: .milliseconds(200)) { _ in .ok }
         defer { server.stop() }
+        let clock = ContinuousClock()
+        let started = clock.now
         let reply = try await Self.exchangeRaw(Data(), socket: socket)
-        #expect(reply.isEmpty) // closed without an answer
+        #expect(reply.isEmpty) // closed without an answer…
+        #expect(clock.now - started < .seconds(2)) // …as soon as the limit passed
         #expect(await BridgeFixtures.relay(BridgeFixtures.play, socket: socket) == PlayReply.ok.encoded())
     }
 
@@ -673,12 +679,13 @@ struct HostRelayTests {
         #expect(HostRelay.readRequest(from: pipe.fileHandleForReading) == BridgeFixtures.play)
     }
 
-    @Test(arguments: [Data([5, 0, 0, 0]) + Data("ab".utf8), Data([0, 0, 0x20, 0]), Data([1])])
+    /// Cut short, or 2 MB announced and sent (from a file: a pipe would hold up the writer).
+    @Test(arguments: [Data([5, 0, 0, 0]) + Data("ab".utf8), Data([0, 0, 0x20, 0]) + Data(count: 0x20_0000), Data([1])])
     func refusesTruncatedOrOversizedInput(_ bytes: Data) throws {
-        let pipe = Pipe()
-        pipe.fileHandleForWriting.write(bytes)
-        try pipe.fileHandleForWriting.close()
-        #expect(HostRelay.readRequest(from: pipe.fileHandleForReading) == nil)
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("pp-request-\(UUID())")
+        try bytes.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        #expect(HostRelay.readRequest(from: try FileHandle(forReadingFrom: file)) == nil)
     }
 
     @Test func findsTheAppItLivesIn() {
@@ -1221,7 +1228,7 @@ struct WebInputTests {
 
     /// Spec §6: a site that refuses the stream (an expired link or a missing cookie).
     @Test(arguments: ["status/403/h264_aac.mp4", "status/410/h264_aac.mp4", "status/401/h264_aac.mp4",
-                      "cookie/pp=1/h264_aac.mp4"])
+                      "status/404/h264_aac.mp4", "cookie/pp=1/h264_aac.mp4"])
     func recognisesASiteRefusingTheStream(_ path: String) async throws {
         let tools = try #require(TestSupport.tools)
         let server = try await HLSServer(directory: TestSupport.mediaDirectory)
@@ -1731,6 +1738,14 @@ struct BrowserPlaybackTests {
         #expect(reply == .failed(Self.refused))
         #expect(controller.phase == .failed(Self.refused))
         await controller.shutDown()
+    }
+
+    /// A link that expires while the video plays stops ffmpeg part-way through.
+    @Test func aSiteThatStopsPartWayThroughIsNamedToo() {
+        let refused = ConversionStopped(message: "[https @ 0x1] Server returned 403 Forbidden (access denied)")
+        #expect(PlaybackError.message(for: refused) == Self.refused)
+        #expect(PlaybackError.message(for: ConversionStopped(message: "Invalid data found when processing input"))
+            == "Converting the video stopped part-way through.")
     }
 
     /// YouTube needs yt-dlp, which comes in Milestone 4 (addendum M3-4); until then a page asks
@@ -3064,6 +3079,26 @@ describe("tab state", () => {
     ]);
     expect(tab.candidates).toHaveLength(1);
     expect(tab.candidates[0]).toMatchObject({ url: "https://cdn.example/v/index.m3u8?token=new", headers: { Cookie: "a=2" }, lastActivity: 6000 });
+  });
+
+  it("keeps the headers it has when a repeat's weren't captured (the worker was restarted)", () => {
+    const tab = replay([
+      seen("https://cdn.example/v/index.m3u8", 0, { headers: { Cookie: "a=1" } }),
+      seen("https://cdn.example/v/index.m3u8", 6000, { headers: {} }),
+    ]);
+    expect(tab.candidates[0]?.headers).toEqual({ Cookie: "a=1" });
+  });
+
+  it("credits a segment only to a stream on its own host", () => {
+    const tab = replay([
+      seen("https://a.example/v/index.m3u8", 0),
+      seen("https://b.example/v/index.m3u8", 100),
+      seen("https://b.example/v/s1.ts", 2000, { contentType: "video/mp2t" }),
+    ]);
+    expect(tab.candidates.map((c) => [c.url, c.lastActivity])).toEqual([
+      ["https://a.example/v/index.m3u8", undefined],
+      ["https://b.example/v/index.m3u8", 2000],
+    ]);
   });
 
   it("keeps a candidate's headers, and nothing from requests that aren't video", () => {
@@ -4479,6 +4514,10 @@ try {
 
   const { targetId: page } = await call("Target.createTarget", { url: pageURL });
   await sleep(4000); // the video loads and plays; its requests and reports reach the worker
+  expect("the page's video plays", await evaluate(page, `(() => {
+    const video = document.querySelector("video");
+    return { paused: video.paused, time: video.currentTime > 0, error: video.error?.message ?? null };
+  })()`), { paused: false, time: true, error: null });
 
   const { targetId: popup } = await call("Target.createTarget", { url: `chrome-extension://${id}/popup.html` });
   await sleep(500);
@@ -4490,7 +4529,10 @@ try {
   })()`);
   expect("one video is found", [result.plan, result.label], ["send", "Video file · 127.0.0.1"]);
   expect("Paper Plane takes it", result.sent, { ok: true });
-  await sleep(500);
+  // Chrome rests a muted video in a background tab and resumes it in front, so look with the
+  // page in front: only a video the extension paused stays paused.
+  await call("Target.activateTarget", { targetId: page });
+  await sleep(1500);
   expect("the page's video is paused", await evaluate(page, `document.querySelector("video").paused`), true);
 } catch (error) {
   console.log(`FAIL: ${error.message}`);

@@ -1,0 +1,89 @@
+import Foundation
+import Testing
+@testable import PaperPlaneCore
+
+struct YtDlpCommandTests {
+    let page = URL(string: "https://www.youtube.com/watch?v=aqz-KE-bpKQ")!
+    let cache = URL(fileURLWithPath: "/tmp/Paper Plane/yt-dlp")
+
+    /// A page address can never be read as an option, whatever it starts with.
+    @Test func argumentsEndWithThePageAfterADoubleDash() {
+        let arguments = YtDlpCommand.arguments(page: page, cacheFolder: cache)
+        #expect(Array(arguments.suffix(2)) == ["--", page.absoluteString])
+        #expect(arguments.first == "-J")
+        #expect(arguments.contains("--no-playlist"))
+        #expect(Array(arguments.drop { $0 != "--playlist-items" }.prefix(2)) == ["--playlist-items", "1"])
+        #expect(Array(arguments.drop { $0 != "--cache-dir" }.prefix(2)) == ["--cache-dir", cache.path])
+        #expect(Array(arguments.drop { $0 != "--socket-timeout" }.prefix(2)) == ["--socket-timeout", "20"])
+    }
+
+    /// The owner's own yt-dlp configuration never applies, and the cookie arrives on stdin (decision 5).
+    @Test func argumentsReadConfigurationOnlyFromStandardInput() {
+        let arguments = YtDlpCommand.arguments(page: page, cacheFolder: cache)
+        #expect(arguments.contains("--ignore-config"))
+        #expect(Array(arguments.drop { $0 != "--config-locations" }.prefix(2)) == ["--config-locations", "-"])
+        #expect(!arguments.contains { $0.localizedCaseInsensitiveContains("cookie") })
+    }
+
+    /// Spec §5.3: formats that can be copied (H.264 with AAC) up to 1080p first; never DASH, which
+    /// ffmpeg can't read (decision 7).
+    @Test func formatsPreferH264AndAACUpTo1080pAndNeverDASH() {
+        let arguments = YtDlpCommand.arguments(page: page, cacheFolder: cache)
+        #expect(Array(arguments.drop { $0 != "-f" }.prefix(2)) == ["-f", YtDlpCommand.formats])
+        let alternatives = YtDlpCommand.formats.split(separator: "/").map(String.init)
+        #expect(alternatives.first == "bv[height<=1080][vcodec^=avc1][protocol!*=dash]+ba[acodec^=mp4a][protocol!*=dash]")
+        #expect(alternatives.count == 6)
+        for alternative in alternatives {
+            for part in alternative.split(separator: "+") {
+                #expect(part.hasSuffix("[protocol!*=dash]"), "\(part) could pick DASH")
+            }
+        }
+        #expect(alternatives.last == "b[protocol!*=dash]")
+    }
+
+    @Test func noCookieMeansAnEmptyConfiguration() {
+        #expect(YtDlpCommand.configuration(cookie: nil) == "")
+        #expect(YtDlpCommand.configuration(cookie: "") == "")
+        #expect(YtDlpCommand.configuration(cookie: "\r\n") == "")
+        #expect(YtDlpCommand.configuration(cookie: "SID=abc; HSID=def") == "--add-headers 'Cookie:SID=abc; HSID=def'\n")
+    }
+
+    /// yt-dlp reads its configuration with Python's shlex. Whatever a cookie holds, it comes back as
+    /// the one argument to --add-headers: no quote, comment or line break can add an option such as
+    /// --plugin-dirs, which would load code (Review Focus 3).
+    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: "/usr/bin/python3")))
+    func hostileCookiesStayOneArgument() throws {
+        let hostile = "a=1; b='; --plugin-dirs /tmp/x; c=\"q\" # not a comment\nd=2\r--exec rm\u{0}; e=\\'x' '; f=é\u{7f}"
+        let parsed = try Self.shlexSplit(YtDlpCommand.configuration(cookie: hostile))
+        #expect(parsed == ["--add-headers", "Cookie:a=1; b='; --plugin-dirs /tmp/x; c=\"q\" # not a commentd=2--exec rm; e=\\'x' '; f="])
+    }
+
+    /// yt-dlp finds a JavaScript runtime (Deno) or other tools that Homebrew installed, though apps
+    /// started from the Dock get only the system's PATH (decision 8).
+    @Test func pathFindsHomebrewTools() {
+        let environment = YtDlpCommand.environment(base: ["PATH": "/usr/bin:/bin", "HOME": "/Users/someone"])
+        #expect(environment["PATH"] == "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin")
+        #expect(environment["HOME"] == "/Users/someone")
+        #expect(YtDlpCommand.environment(base: ["PATH": "/opt/homebrew/bin:/usr/bin"])["PATH"]
+            == "/opt/homebrew/bin:/usr/bin:/usr/local/bin")
+        #expect(YtDlpCommand.environment(base: [:])["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin")
+    }
+
+    /// Splits `text` the way yt-dlp reads a configuration: `shlex.split(text, comments=True)`.
+    static func shlexSplit(_ text: String) throws -> [String] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-I", "-c",
+                             "import json, shlex, sys; print(json.dumps(shlex.split(sys.stdin.read(), comments=True)))"]
+        let input = Pipe()
+        let output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        try process.run()
+        input.fileHandleForWriting.write(Data(text.utf8))
+        try input.fileHandleForWriting.close()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return try JSONDecoder().decode([String].self, from: data)
+    }
+}

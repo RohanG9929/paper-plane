@@ -55,10 +55,14 @@ public struct ResolvedInput: Equatable, Sendable {
 
     public var inputs: [Input]
     public var title: String
+    /// The page yt-dlp found the inputs on, if any. Its address, not theirs, decides whether they
+    /// may come from this Mac or the local network (Milestone 4, decision 12).
+    public var page: URL?
 
-    public init(inputs: [Input], title: String) {
+    public init(inputs: [Input], title: String, page: URL? = nil) {
         self.inputs = inputs
         self.title = title
+        self.page = page
     }
 
     /// From the web, as opposed to files on this Mac.

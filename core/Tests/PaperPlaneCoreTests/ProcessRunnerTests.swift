@@ -59,6 +59,26 @@ struct ProcessRunnerTests {
         #expect(ContinuousClock.now - cancelledAt < .seconds(5))
     }
 
+    /// yt-dlp reads the cookie from standard input (Milestone 4, decision 5).
+    @Test(.timeLimit(.minutes(1))) func processRunnerFeedsStandardInput() async throws {
+        let result = try await ProcessRunner.run(URL(fileURLWithPath: "/bin/cat"), arguments: [],
+                                                 input: Data("Cookie: a=1\n".utf8))
+        #expect(String(decoding: result.stdout, as: UTF8.self) == "Cookie: a=1\n")
+    }
+
+    /// A child that exits without reading what it was given doesn't take the app down with SIGPIPE.
+    @Test func aChildThatIgnoresStandardInputIsFine() async throws {
+        let result = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/true"), arguments: [],
+                                                 input: Data(count: 1 << 20))
+        #expect(result.status == 0)
+    }
+
+    @Test func processRunnerSetsTheEnvironment() async throws {
+        let result = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/env"), arguments: [],
+                                                 environment: ["PAPERPLANE_TEST": "1"])
+        #expect(String(decoding: result.stdout, as: UTF8.self) == "PAPERPLANE_TEST=1\n")
+    }
+
     @Test func missingExecutableThrows() async {
         await #expect(throws: (any Error).self) {
             try await ProcessRunner.run(URL(fileURLWithPath: "/nonexistent/tool"), arguments: [])

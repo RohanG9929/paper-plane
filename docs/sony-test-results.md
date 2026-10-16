@@ -69,3 +69,28 @@ Filled in by Plan 2 Task 9 from the results above.
 - Surround: not run; defaults kept (off). If R1 and R2 both play with sound, apply Plan 2 Task 9 Step 6's surround changes.
 - HDR: not run; defaults kept (HDR plans open the master playlist). If R3 doesn't play, apply Plan 2 Task 10 Step 3's HDR fallback.
 - Live start: not run; defaults kept (the app seeks to 0 after the TV takes over). If R4 starts at 0 s, `PlaybackController.seeksToStartOnTV` can become `false`.
+
+## Plan 2: first playback through Paper Plane
+
+Build and run the app (`open app/PaperPlane.xcodeproj`, PaperPlane scheme, ⌘R). To watch what it does: `log stream --info --predicate 'subsystem == "dev.paperplane.app"'`. For a five-minute copy-mode MKV (H.264 copied, AC3 5.1 converted to stereo AAC):
+
+```bash
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1920x1080:rate=24:duration=300" -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=300" -c:v libx264 -preset veryfast -pix_fmt yuv420p -g 48 -c:a ac3 -b:a 448k -ac 6 ~/Desktop/paperplane-five-minutes.mkv
+```
+
+Everything up to the TV was checked on the Mac on 2026-10-15: Open With reaches the app, the stream is served on the LAN address behind the token, and quitting at any moment leaves no ffmpeg or session files (`scripts/check-quit-cleanup.sh`). These rows need the owner at the TV.
+
+| # | Check | Expected | Result |
+|---|---|---|---|
+| P1 | Launch | Paper plane icon in the menu bar; the remote opens with "Welcome to Paper Plane" (first launch only), then "Drop a video here". Note any Local Network prompt (answer Allow) | Needs the owner at the TV |
+| P2 | Drop the five-minute MKV on the remote | "Getting your video ready…", then "Choose your TV to start" with the AirPlay button ringed in blue. Nothing plays on the Mac | Needs the owner at the TV |
+| P3 | Pick the Sony with the remote's AirPlay button | Plays on the TV within a few seconds, from the start. The remote says "Playing on your TV", the artwork shows a frame of the video, and the clock counts up | Needs the owner at the TV |
+| P4 | Pause and Play on the remote (or Space); then pause with the TV's own remote | The TV follows. The remote's button follows the TV | Needs the owner at the TV |
+| P5 | Skip back and forward 10 s (or ← →); drag the scrubber within the lighter "converted" part | The TV jumps there. (Seeking past what's converted comes with Milestone 2) | Needs the owner at the TV |
+| P6 | Move the volume slider | Note whether the TV's volume follows (AirPlay may leave volume to the TV) | Needs the owner at the TV |
+| P7 | Stop (■ or ⌘.) | The TV leaves the video. The remote says "Drop a video here" | Needs the owner at the TV |
+| P8 | Drop `testdata/media/hevc_hdr10_aac.mkv`, pick the Sony | Plays (10 s). Note whether the HDR indicator shows | Needs the owner at the TV |
+| P9 | Drop `testdata/media/vp9_opus.webm`, pick the Sony | Plays (re-encoded with VideoToolbox) | Needs the owner at the TV |
+| P10 | In Finder, Open With → Paper Plane on the five-minute MKV | The remote comes forward; then as P2 and P3 | Needs the owner at the TV |
+| P11 | During playback, turn the TV off, or end AirPlay from Control Center | The remote says "Your TV disconnected. Choose it again to continue". The Mac stays silent. Picking the TV again resumes where it was | Needs the owner at the TV |
+| P12 | Quit from the menu during playback | `pgrep -fl ffmpeg` prints nothing; `ls ~/Library/Caches/Paper\ Plane/sessions/` is empty | Checked on the Mac (no TV needed): clean |

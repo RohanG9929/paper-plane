@@ -1,17 +1,23 @@
 import AppKit
 import PaperPlaneCore
+import PaperPlaneUI
 import SwiftUI
 
 /// The small "now playing" window (spec §1). Plain AppKit, so it can be shown from anywhere,
-/// including Finder's Open With.
+/// including Finder's Open With. The views themselves live in PaperPlaneUI.
 @MainActor
 final class RemoteWindow {
     private let window: NSWindow
 
-    init(controller: PlaybackController, open: @escaping ([URL]) -> Void) {
-        window = NSWindow(contentViewController: NSHostingController(rootView: RemoteView(controller: controller, open: open)))
+    init(controller: PlaybackController, openVideo: @escaping @MainActor @Sendable () -> Void,
+         open: @escaping @MainActor @Sendable ([URL]) -> Void) {
+        let root = RemoteWindowContent(controller: controller, openVideo: openVideo, open: open)
+        window = NSWindow(contentViewController: NSHostingController(rootView: root))
         window.title = "Paper Plane"
-        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.center()
     }
@@ -22,56 +28,34 @@ final class RemoteWindow {
     }
 }
 
-struct RemoteView: View {
+struct RemoteWindowContent: View {
     let controller: PlaybackController
-    let open: ([URL]) -> Void
-    @State private var isDropTarget = false
+    let openVideo: @MainActor @Sendable () -> Void
+    let open: @MainActor @Sendable ([URL]) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(controller.title ?? "Nothing playing")
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(controller.status)
-                        .foregroundStyle(controller.needsTV ? Color.accentColor : .secondary)
-                }
-                Spacer()
-                RoutePicker(player: controller.player)
-                    .frame(width: 32, height: 26)
-                    .padding(4)
-                    .background(controller.needsTV ? Color.accentColor.opacity(0.25) : .clear,
-                                in: RoundedRectangle(cornerRadius: 8))
-                    .help("Choose your TV")
-            }
-            HStack(spacing: 10) {
-                Button(controller.isPaused ? "Play" : "Pause", systemImage: controller.isPaused ? "play.fill" : "pause.fill") {
-                    controller.togglePause()
-                }
-                .disabled(!controller.isOnTV)
-                Button("Stop", systemImage: "stop.fill") {
-                    controller.stop()
-                }
-                .disabled(!controller.isActive)
-                Spacer()
-                Text(controller.timeText)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
+        let controller = controller
+        let open = open
+        RemoteView(
+            state: controller.remoteState,
+            artwork: controller.artwork.map { Image(nsImage: $0) },
+            actions: RemoteActions(
+                openVideo: openVideo,
+                drop: { urls in
+                    guard !VideoFiles.videos(in: urls).isEmpty else { return false }
+                    open(urls)
+                    return true
+                },
+                togglePlay: { controller.togglePause() },
+                skip: { controller.skip(by: $0) },
+                seek: { controller.seek(toMovieTime: $0) },
+                stop: { controller.stop() },
+                setVolume: { controller.volume = $0 },
+                dismissWelcome: { controller.dismissWelcome() })
+        ) {
+            RoutePicker(player: controller.player)
         }
-        .padding(18)
-        .frame(width: 440)
-        .overlay {
-            if isDropTarget {
-                RoundedRectangle(cornerRadius: 10).stroke(Color.accentColor, lineWidth: 3).padding(3)
-            }
-        }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard !VideoFiles.videos(in: urls).isEmpty else { return false }
-            open(urls)
-            return true
-        } isTargeted: { isDropTarget = $0 }
+        .padding(.top, 18) // room for the window buttons in the transparent title bar
+        .background(.background)
     }
 }

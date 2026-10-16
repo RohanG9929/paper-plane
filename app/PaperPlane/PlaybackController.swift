@@ -1,10 +1,12 @@
+import AppKit
 import AVFoundation
 import Observation
 import os
 import PaperPlaneCore
+import PaperPlaneUI
 
 /// Plays one video at a time on the TV: probe → plan → transcode → serve → AVPlayer → AirPlay
-/// (spec §4). Basic for now; seeking, track changes and recovery come with Milestone 2.
+/// (spec §4). Seeking past what's converted, track changes and recovery come with Milestone 2.
 @MainActor @Observable
 final class PlaybackController {
     enum Phase: Equatable {
@@ -20,13 +22,23 @@ final class PlaybackController {
     /// Whether to seek to the start once the TV takes over, in case it began at a growing
     /// playlist's live edge (docs/sony-test-results.md, row 7a and the Plan 2 re-test).
     static let seeksToStartOnTV = true
+    private static let welcomeKey = "didShowWelcome"
 
     let player = AVPlayer()
     private(set) var phase = Phase.idle
     private(set) var title: String?
+    private(set) var detail = ""
     private(set) var isPaused = true
     private(set) var movieTime = 0.0
     private(set) var duration: Double?
+    /// How far the conversion has got, in movie time.
+    private(set) var convertedEnd: Double?
+    private(set) var artwork: NSImage?
+    private(set) var tvWentAway = false
+    private(set) var showsWelcome = !UserDefaults.standard.bool(forKey: welcomeKey)
+    var volume = 1.0 {
+        didSet { player.volume = Float(volume) }
+    }
 
     @ObservationIgnored private var stream: ServedStream?
     @ObservationIgnored private var starting: Task<Void, Never>?
@@ -61,32 +73,28 @@ final class PlaybackController {
         }
     }
 
-    var isOnTV: Bool { phase == .onTV }
-    var needsTV: Bool { phase == .waitingForTV }
-
-    var status: String {
-        switch phase {
-        case .idle: "Drop a video here, or use Open Video… in the menu bar."
-        case .preparing: "Getting the video ready…"
-        case .waitingForTV: "Choose your TV with the AirPlay button."
-        case .onTV: isPaused ? "Paused on the TV" : "Playing on the TV"
-        case .failed(let message): message
+    /// What the remote window shows.
+    var remoteState: RemoteState {
+        let remotePhase: RemoteState.Phase = switch phase {
+        case .idle: .idle
+        case .preparing: .preparing
+        case .waitingForTV: .choosingTV(tvWentAway: tvWentAway)
+        case .onTV: isPaused ? .paused : .playing
+        case .failed(let message): .failed(message)
         }
-    }
-
-    var timeText: String {
-        guard isActive else { return "" }
-        let elapsed = Self.clock(movieTime)
-        return duration.map { "\(elapsed) / \(Self.clock($0))" } ?? elapsed
+        return RemoteState(phase: remotePhase, title: title ?? "", detail: detail, elapsed: movieTime,
+                           duration: duration, converted: convertedEnd, volume: volume, showsWelcome: showsWelcome)
     }
 
     // MARK: - Commands
 
     /// Plays the first video among `urls`, replacing whatever is playing.
     func play(_ urls: [URL]) {
+        showsWelcome = false
         guard let url = VideoFiles.videos(in: urls).first else {
             if let first = urls.first {
                 stop()
+                title = first.lastPathComponent
                 phase = .failed("“\(first.lastPathComponent)” isn't a video file.")
             }
             return
@@ -106,6 +114,23 @@ final class PlaybackController {
         }
     }
 
+    /// Moves by `seconds` (−10 or +10), within what has been converted so far.
+    func skip(by seconds: Double) {
+        seek(toMovieTime: movieTime + seconds)
+    }
+
+    /// Goes to `time` in the movie. Until Milestone 2 restarts the conversion for a seek, it stays
+    /// within what has been converted. The TV seeks whether or not AirPlay reports it finished
+    /// (docs/sony-test-results.md, row 7b), so there is nothing to wait for.
+    func seek(toMovieTime time: Double) {
+        guard phase == .onTV, let stream else { return }
+        let offset = stream.session.offset
+        let latest = max(offset, (convertedEnd ?? movieTime) - 1)
+        let target = min(max(time, offset), latest)
+        movieTime = target
+        player.seek(to: CMTime(seconds: target - offset, preferredTimescale: 600))
+    }
+
     func stop() {
         starting?.cancel()
         starting = nil
@@ -118,9 +143,18 @@ final class PlaybackController {
         }
         stream = nil
         title = nil
+        detail = ""
+        artwork = nil
         phase = .idle
         movieTime = 0
         duration = nil
+        convertedEnd = nil
+        tvWentAway = false
+    }
+
+    func dismissWelcome() {
+        showsWelcome = false
+        UserDefaults.standard.set(true, forKey: Self.welcomeKey)
     }
 
     /// Stops ffmpeg and waits for it, before the app quits. A start still in progress is
@@ -149,27 +183,53 @@ final class PlaybackController {
             log.info("Serving \(stream.title, privacy: .public) at \(stream.url.absoluteString, privacy: .private)")
             self.stream = stream
             duration = stream.media.duration
+            movieTime = stream.session.offset
+            detail = Self.detail(for: stream.media)
             watchingEvents = Task { await watch(stream.session) }
             player.replaceCurrentItem(with: AVPlayerItem(url: stream.url))
             phase = .waitingForTV
             externalPlaybackChanged()
+            if let jpeg = await Thumbnail.jpeg(tools: tools, input: .init(url: url),
+                                                at: Thumbnail.moment(duration: duration)),
+               self.stream === stream {
+                artwork = NSImage(data: jpeg)
+            }
         } catch is CancellationError {
             // stop() or a newer play() took over.
         } catch {
             log.error("Couldn't play \(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
+            let name = title
             stop()
+            title = name
             phase = .failed(PlaybackError.message(for: error))
         }
     }
 
     private func watch(_ session: TranscodeSession) async {
         for await event in session.events {
-            if case .failed(let message) = event {
+            switch event {
+            case .segment(_, let end):
+                convertedEnd = session.offset + end
+            case .finished:
+                convertedEnd = duration ?? convertedEnd
+            case .failed(let message):
                 log.error("ffmpeg failed: \(message, privacy: .public)")
+                let name = title
                 stop()
+                title = name
                 phase = .failed("Converting the video stopped part-way through.")
             }
         }
+    }
+
+    private static func detail(for media: MediaInfo) -> String {
+        let video = media.video.first
+        let hdr: String? = switch video?.hdr {
+        case .pq: "HDR10"
+        case .hlg: "HLG"
+        case nil: nil
+        }
+        return MediaSummary.text(height: video?.height, hdr: hdr, duration: media.duration)
     }
 
     // MARK: - Player
@@ -179,8 +239,9 @@ final class PlaybackController {
         if player.isExternalPlaybackActive {
             guard phase == .waitingForTV else { return }
             phase = .onTV
+            tvWentAway = false
             player.play()
-            if Self.seeksToStartOnTV {
+            if Self.seeksToStartOnTV, movieTime <= (stream?.session.offset ?? 0) + 1 {
                 // Don't wait for the completion handler: over AirPlay it reports finished == false
                 // even when the TV did seek (docs/sony-test-results.md, row 7b).
                 player.seek(to: .zero)
@@ -188,21 +249,14 @@ final class PlaybackController {
         } else if phase == .onTV {
             // The TV went away. Never carry on playing on the Mac.
             player.pause()
+            tvWentAway = true
             phase = .waitingForTV
         }
     }
 
     private func timeChanged(_ time: CMTime) {
-        guard let stream, time.isNumeric else { return }
+        guard let stream, phase == .onTV, time.isNumeric else { return }
         movieTime = stream.session.offset + time.seconds
-    }
-
-    private static func clock(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded(.down))
-        let (hours, minutes, secs) = (total / 3600, total / 60 % 60, total % 60)
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, secs)
-            : String(format: "%d:%02d", minutes, secs)
     }
 }
 
@@ -216,7 +270,7 @@ enum PlaybackError: Error {
         case PlaybackError.noFFmpeg: "ffmpeg is missing. Run scripts/build-ffmpeg.sh, or brew install ffmpeg."
         case PlaybackError.offline: "Your Mac isn't on a network, so the TV can't reach it."
         case PlanError.noVideoTrack: "This file has no video."
-        case is MediaProbeError: "Paper Plane couldn't read this file."
+        case is MediaProbeError: "Paper Plane couldn't read this file. It may be damaged or not a video."
         case is TranscodeError: "Converting the video failed."
         default: "Something went wrong: \(error.localizedDescription)"
         }

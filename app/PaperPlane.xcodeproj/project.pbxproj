@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		5050504C0000000000000101 /* PaperPlaneCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5050504C0000000000000102 /* PaperPlaneCore */; };
+		5050504C0000000000000104 /* PaperPlaneUI in Frameworks */ = {isa = PBXBuildFile; productRef = 5050504C0000000000000105 /* PaperPlaneUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +30,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5050504C0000000000000101 /* PaperPlaneCore in Frameworks */,
+				5050504C0000000000000104 /* PaperPlaneUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,6 +76,7 @@
 			name = PaperPlane;
 			packageProductDependencies = (
 				5050504C0000000000000102 /* PaperPlaneCore */,
+				5050504C0000000000000105 /* PaperPlaneUI */,
 			);
 			productName = PaperPlane;
 			productReference = 5050504C0000000000000002 /* Paper Plane.app */;
@@ -191,6 +194,7 @@
 		5050504C0000000000000031 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -209,6 +213,7 @@
 		5050504C0000000000000032 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -258,6 +263,10 @@
 		5050504C0000000000000102 /* PaperPlaneCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PaperPlaneCore;
+		};
+		5050504C0000000000000105 /* PaperPlaneUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PaperPlaneUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

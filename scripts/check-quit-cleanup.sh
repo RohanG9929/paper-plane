@@ -36,8 +36,26 @@ for delay in 0.3 0.6 0.9 1.2 1.6 2.0 3.0; do
     rm -rf "$SESSIONS"
   fi
 done
+# Opening a second video while the first is still being prepared must leave only the second.
+SECOND="$PWD/testdata/media/h264_ac3_51.mkv"
+if [[ -f "$SECOND" ]]; then
+  open "$APP"
+  until pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
+  sleep 1
+  open -a "$APP" "$CLIP"
+  sleep 0.4
+  open -a "$APP" "$SECOND"
+  sleep 4
+  folders="$(find "$SESSIONS" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
+  converting="$(pgrep -f 'ffmpeg .*paperplane-quit-check' | wc -l | tr -d ' ')"
+  echo "open twice quickly: session folders ${folders}, ffmpeg still on the first video ${converting}"
+  [[ "$folders" == 1 && "$converting" == 0 ]] || leftovers=1
+  osascript -e 'tell application id "dev.paperplane.app" to quit' >/dev/null
+  while pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
+fi
+
 if ((leftovers)); then
-  echo "LEFTOVERS: quitting left ffmpeg or a session folder behind" >&2
+  echo "LEFTOVERS: ffmpeg or a session folder outlived what it belonged to" >&2
   exit 1
 fi
 echo "Clean: nothing outlived the app"

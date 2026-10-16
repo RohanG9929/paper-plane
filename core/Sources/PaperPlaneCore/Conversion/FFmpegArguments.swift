@@ -38,8 +38,9 @@ extension ConversionPlan {
 
     /// The ffmpeg command line (without the executable) that writes this plan as an HLS
     /// event playlist (`index.m3u8`, `init.mp4`, `seg_00000.m4s`, …) into `output`,
-    /// starting `start` seconds into the media.
-    public func ffmpegArguments(input: ResolvedInput, start: Double, output: URL) -> [String] {
+    /// starting `start` seconds into the media. A `trim` drops every packet, on every track,
+    /// before that time, so a hidden lead-in never reaches the TV (`Transcoder.leadInStart`).
+    public func ffmpegArguments(input: ResolvedInput, start: Double, output: URL, trim: Double? = nil) -> [String] {
         var args = ffmpegQuietArguments + input.ffmpegInputArguments(seek: start)
 
         var filters = burnIn == .text ? ["subtitles=f=\(HLSFileNames.burnInSubtitles)"] : []
@@ -74,6 +75,9 @@ extension ConversionPlan {
             args += ["-an"]
         }
         args += ["-map_chapters", "-1"]
+        if let trim {
+            args += ["-ss", String(format: "%.6f", trim)]
+        }
         args += videoArguments()
         args += audioArguments()
         args += ["-max_muxing_queue_size", "4096"]

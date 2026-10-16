@@ -28,6 +28,18 @@ struct FFmpegArgumentsTests {
         ] + Self.hlsTail)
     }
 
+    @Test func aTrimDropsEverythingBeforeItAsAnOutputOption() {
+        // After the input, so ffmpeg drops packets (both tracks) instead of seeking the input.
+        let args = Self.plan(.copy(.h264)).ffmpegArguments(input: Self.movie, start: 0, output: Self.output,
+                                                           trim: 2.432833)
+        #expect(args == [
+            "-hide_banner", "-nostdin", "-nostats", "-loglevel", "error",
+            "-i", "/Movies/Movie: Part 1 (Director's Cut) é.mkv",
+            "-map", "0:0", "-map", "0:2", "-map_chapters", "-1", "-ss", "2.432833",
+            "-c:v", "copy", "-c:a", "copy",
+        ] + Self.hlsTail)
+    }
+
     @Test func startOffsetGoesBeforeEachInput() {
         let input = ResolvedInput(inputs: [
             .init(url: URL(string: "https://cdn.example.com/video.mp4")!, headers: ["Cookie": "a=1"]),

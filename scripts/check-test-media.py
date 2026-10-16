@@ -28,6 +28,15 @@ EXPECTED = {
     "h264_multiaudio.mkv": [("video", "h264", None), ("audio", "aac", 2), ("audio", "ac3", 6)],
     "audio_only.m4a": [("audio", "aac", 2)],
     "Movie: Part 1 (Director's Cut) é.mp4": [("video", "h264", None), ("audio", "aac", 2)],
+    "h264_aac_longgop.mp4": [("video", "h264", None), ("audio", "aac", 2)],
+    "h264_aac_editlist.mp4": [("video", "h264", None), ("audio", "aac", 2)],
+}
+
+# file -> the video keyframes (presentation seconds, edit lists applied) it must have
+KEYFRAMES = {
+    "h264_aac_longgop.mp4": [0.0, 5.0, 10.0, 15.0],
+    # -2.5 is the hidden lead-in the edit list skips.
+    "h264_aac_editlist.mp4": [-2.5, 2.5, 7.5, 12.5],
 }
 
 # file -> fields the first real video stream must have
@@ -69,7 +78,20 @@ def problems_for(name, expected):
                    if s.get("codec_type") == "audio" and s.get("disposition", {}).get("default")]
         if default != ["ac3"]:
             problems.append(f"default audio tracks are {default}, expected ['ac3']")
+    if name in KEYFRAMES:
+        keyframes = video_keyframes(path)
+        if keyframes != KEYFRAMES[name]:
+            problems.append(f"video keyframes are {keyframes}, expected {KEYFRAMES[name]}")
     return problems
+
+
+def video_keyframes(path):
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,flags",
+         "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True)
+    return [round(float(pts), 3) for pts, flags, *_ in (line.split(",") for line in result.stdout.splitlines())
+            if "K" in flags]
 
 
 def main():

@@ -9,6 +9,18 @@ struct ProcessRunnerTests {
         #expect(String(decoding: result.stdout, as: UTF8.self) == "hello\n")
     }
 
+    /// Work nobody waits on (converting subtitles) runs at background priority, which macOS also
+    /// throttles for disk reads, so it doesn't compete with the video the TV is fetching.
+    @Test func runsAtTheQualityOfServiceAsked() async throws {
+        let priority: @Sendable (QualityOfService?) async throws -> String = { qos in
+            let result = try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sh"),
+                                                     arguments: ["-c", "ps -o pri= -p $$"], qualityOfService: qos)
+            return String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        #expect(try await priority(.background) == "4")
+        #expect(try await priority(nil) != "4")
+    }
+
     @Test func reportsNonZeroExitAndStderr() async throws {
         let result = try await ProcessRunner.run(
             URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "echo oops >&2; exit 3"])

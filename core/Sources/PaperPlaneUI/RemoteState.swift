@@ -55,12 +55,15 @@ public struct RemoteState: Equatable, Sendable {
     public var canShowLog: Bool
     /// Explain how to choose the TV, until it has been done once (design audit, move 2).
     public var showsTVHelp: Bool
+    /// Where the current session starts, in movie time: converted video runs from here to
+    /// `converted`. nil or 0 when it starts at the beginning.
+    public var convertedFrom: Double?
 
     public init(phase: Phase = .idle, title: String = "", detail: String = "", elapsed: Double = 0,
                 duration: Double? = nil, converted: Double? = nil, volume: Double = 1, showsWelcome: Bool = false,
                 notice: String? = nil, audioChoices: [Choice] = [], audio: String? = nil,
                 subtitleChoices: [Choice] = [], subtitle: String? = nil, loading: String? = nil,
-                canShowLog: Bool = false, showsTVHelp: Bool = true) {
+                canShowLog: Bool = false, showsTVHelp: Bool = true, convertedFrom: Double? = nil) {
         self.phase = phase
         self.title = title
         self.detail = detail
@@ -77,6 +80,7 @@ public struct RemoteState: Equatable, Sendable {
         self.loading = loading
         self.canShowLog = canShowLog
         self.showsTVHelp = showsTVHelp
+        self.convertedFrom = convertedFrom
     }
 
     /// Play/pause, skip and seek only mean something once the TV is playing the video.
@@ -103,16 +107,35 @@ public struct RemoteState: Equatable, Sendable {
         }
     }
 
+    /// The remote's menu and the menu bar's offer audio when there's more than one track, and
+    /// subtitles when there are any.
+    public var showsAudioChoices: Bool {
+        canChooseTracks && audioChoices.count > 1
+    }
+
+    public var showsSubtitleChoices: Bool {
+        canChooseTracks && !subtitleChoices.isEmpty
+    }
+
+    /// A seek or track change is starting a new session.
+    public var isLoading: Bool {
+        loading != nil && canChooseTracks
+    }
+
     /// "Ready to play from here up to 0:40" while the conversion is behind the end, so the
     /// lighter part of the track explains itself. Empty once everything is converted or when
     /// unknown.
     public var convertedNote: String {
-        guard let converted, let duration, converted < duration else { return "" }
+        let from = convertedFrom ?? 0
+        guard let converted, let duration, converted < duration || from > 0 else { return "" }
+        if from > 0 {
+            return "Converted from \(TimeText.clock(from)) up to \(TimeText.clock(converted)); a jump elsewhere takes a moment"
+        }
         return "Converted up to \(TimeText.clock(converted)); a jump further on takes a moment"
     }
 
     public var status: String {
-        if let loading, canChooseTracks {
+        if let loading, isLoading {
             return loading
         }
         return switch phase {

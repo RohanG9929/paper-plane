@@ -168,6 +168,8 @@ struct PlaybackControllerMediaTests {
         host: @escaping @Sendable () -> String? = { "127.0.0.1" },
         settings: PlaybackSettings = PlaybackSettings(),
         freeSpace: @escaping @Sendable () -> Int64? = { 100_000_000_000 },
+        extractSubtitles: @escaping @Sendable (StreamPipeline, PlaybackMedia) async throws -> SubtitleFiles
+            = { try await $0.extractSubtitles($1) },
         startStream: @escaping @Sendable (StreamPipeline, PlaybackMedia, StreamRequest) async throws -> ServedStream
             = { pipeline, media, request in
                 try await pipeline.start(media, at: request.start, audio: request.audio, burnIn: request.burnIn,
@@ -178,7 +180,15 @@ struct PlaybackControllerMediaTests {
         return PlaybackController.Environment(
             tools: { tools }, host: host,
             folders: SessionFolders(root: FileManager.default.temporaryDirectory.appendingPathComponent("pp-\(UUID())")),
-            settings: { settings }, startStream: startStream, freeSpace: freeSpace, saveLog: { _, _ in nil })
+            settings: { settings }, extractSubtitles: extractSubtitles, startStream: startStream, freeSpace: freeSpace,
+            saveLog: { _, _ in nil })
+    }
+
+    /// Waits without heeding cancellation, as ffmpeg's own shutdown does.
+    static func uncancellableDelay(_ seconds: Double) async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { continuation.resume() }
+        }
     }
 
     /// A controller holding `file` ready for a TV.
@@ -342,14 +352,53 @@ struct PlaybackControllerMediaTests {
         #expect(controller.remoteState.status == "Moving to 0:06…")
         await PlaybackControllerTests.eventually { controller.loading == nil }
         #expect(abs((controller.stream?.session.offset ?? 0) - 6) < 0.05)
-        #expect(controller.player.rate > 0, "it carries on playing")
+        #expect(controller.phase == .onTV)
 
         controller.seek(toMovieTime: 2) // before the new session's start
         await PlaybackControllerTests.eventually { controller.loading == nil && controller.stream?.session.offset != 6 }
         #expect(abs((controller.stream?.session.offset ?? 0) - 2) < 0.05)
         controller.seek(toMovieTime: 500) // past the end: the last second
         await PlaybackControllerTests.eventually { controller.loading == nil }
-        #expect(controller.movieTime <= 10)
+        #expect(controller.phase == .onTV)
+        #expect(abs(controller.movieTime - 9) < 0.6)
+        await controller.shutDown()
+    }
+
+    /// While a track change's new session starts (here waiting on the subtitles' conversion),
+    /// the TV plays on: the clock keeps going, and the new session starts where playback has got
+    /// to by then, not where it was when the track was chosen.
+    @Test func aTrackChangeFollowsPlaybackWhileItLoads() async throws {
+        let environment = try Self.environment(extractSubtitles: { pipeline, media in
+            await Self.uncancellableDelay(3.5)
+            return try await pipeline.extractSubtitles(media)
+        })
+        let controller = try await playingController(UITestMedia.file("h264_ac3_51.mkv"), environment: environment)
+        await PlaybackControllerTests.eventually { controller.movieTime > 0.2 } // playing, not still buffering
+        let chosenAt = controller.movieTime
+        controller.selectSubtitle("track-0-2")
+        await PlaybackControllerTests.eventually { controller.movieTime > chosenAt + 0.4 }
+        #expect(controller.loading != nil)
+        #expect(controller.movieTime > chosenAt + 0.4, "the clock keeps going")
+        await PlaybackControllerTests.eventually { controller.loading == nil }
+        // Copied video starts on the keyframe (every second here) before where playback was.
+        #expect((controller.stream?.session.offset ?? 0) >= chosenAt + 1)
+        await controller.shutDown()
+    }
+
+    /// Free space is asked for at most every few seconds: the query takes milliseconds of the
+    /// main thread, and the window is checked on every tick and segment.
+    @Test func freeSpaceIsAskedForSparingly() async throws {
+        let asked = OSAllocatedUnfairLock(initialState: 0)
+        let environment = try Self.environment(freeSpace: {
+            asked.withLock { $0 += 1 }
+            return 100_000_000_000
+        })
+        let controller = try await playingController(environment: environment)
+        let before = asked.withLock { $0 }
+        for _ in 0..<5 {
+            controller.manageWindow()
+        }
+        #expect(asked.withLock { $0 } - before <= 1)
         await controller.shutDown()
     }
 
@@ -411,6 +460,62 @@ struct PlaybackControllerMediaTests {
         await controller.shutDown()
         #expect(calls.withLock { $0 } == 3)
         #expect(cleaning.withLock { $0 } == 0)
+    }
+
+    /// While a seek's new session starts, the old one keeps playing on the TV: the window must not
+    /// treat the seek's target as the playhead and delete what the TV is about to fetch.
+    @Test func theWindowLeavesThePlayingSessionAloneDuringASeek() async throws {
+        let controller = try await playingController()
+        let folder = try #require(controller.stream?.session.folder)
+        controller.conversionFinished = false
+        controller.restart(at: 9, loading: "Moving…")
+        controller.movieTime = 400 // as if the seek's target were far ahead
+        controller.manageWindow()
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("seg_00000.m4s").path))
+        #expect(controller.segments.count == 2)
+        await controller.shutDown()
+    }
+
+    /// A subtitle choice waiting on a slow conversion, then Stop: the abandoned choice must not
+    /// leave a notice or converted files behind on the idle remote (or the next video).
+    @Test func aStoppedSubtitleChoiceLeavesNoTrace() async throws {
+        let environment = try Self.environment(extractSubtitles: { pipeline, _ in
+            await Self.uncancellableDelay(0.5)
+            return SubtitleFiles(folder: pipeline.folders.root, files: [:])
+        })
+        let controller = try await playingController(UITestMedia.file("h264_ac3_51.mkv"), environment: environment)
+        controller.selectSubtitle("track-0-2")
+        #expect(controller.loading != nil) // waiting for the conversion
+        try await Task.sleep(for: .milliseconds(100))
+        controller.stop()
+        try await Task.sleep(for: .seconds(1))
+        #expect(controller.notice == nil)
+        #expect(controller.subtitleFiles == nil)
+        await controller.shutDown()
+    }
+
+    /// The address changes while a seek's new session is starting from the old one: once it's
+    /// ready, Paper Plane serves again from the new address.
+    @Test func aNetworkChangeDuringASeekIsNotLost() async throws {
+        let host = OSAllocatedUnfairLock<String?>(initialState: "127.0.0.1")
+        let seekStarted = OSAllocatedUnfairLock(initialState: false)
+        let environment = try Self.environment(host: { host.withLock { $0 } }, startStream: { pipeline, media, request in
+            if request.start == 3 { // the seek: it has its address; hold it a moment
+                seekStarted.withLock { $0 = true }
+                await Self.uncancellableDelay(0.3)
+            }
+            return try await pipeline.start(media, at: request.start)
+        })
+        let controller = try await playingController(environment: environment)
+        controller.restart(at: 3, loading: "Moving…")
+        await PlaybackControllerTests.eventually { seekStarted.withLock { $0 } }
+        host.withLock { $0 = "localhost" }
+        controller.networkChanged()
+        await PlaybackControllerTests.eventually {
+            controller.loading == nil && controller.stream?.server.baseURL.host() == "localhost"
+        }
+        #expect(controller.stream?.server.baseURL.host() == "localhost")
+        await controller.shutDown()
     }
 
     /// Subtitles ffmpeg can't read don't stop the video: they turn off and a notice says so.

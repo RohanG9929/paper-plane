@@ -41,6 +41,13 @@ struct TrackNamesTests {
         #expect(TrackNames.languageTag("") == nil)
     }
 
+    @Test func audioAndSubtitleTracksShareOneIdScheme() {
+        #expect(TrackRef(input: 1, index: 3).id == "track-1-3")
+        let option = SubtitleOption(source: .embedded(TrackRef(input: 1, index: 3)), language: nil, title: nil,
+                                    isForced: false, isText: true)
+        #expect(option.id == TrackRef(input: 1, index: 3).id)
+    }
+
     @Test func repeatedNamesGetNumbers() {
         #expect(TrackNames.unique(["English", "French", "English", "English"])
                 == ["English", "French", "English 2", "English 3"])

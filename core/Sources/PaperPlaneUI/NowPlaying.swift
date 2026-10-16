@@ -99,11 +99,7 @@ public final class NowPlaying {
 
     /// Re-publishes whenever what Control Center shows would change.
     private func follow() {
-        withObservationTracking {
-            publish()
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.follow() }
-        }
+        observeContinuously { [weak self] in self?.publish() }
     }
 
     private func publish() {

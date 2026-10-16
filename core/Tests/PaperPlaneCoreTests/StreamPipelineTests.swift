@@ -116,6 +116,19 @@ struct StreamPipelineTests {
         #expect(stream.subtitleNames.isEmpty)
     }
 
+    /// A web stream's subtitles would mean downloading the whole video to extract them.
+    @Test func convertsSubtitlesOfLocalFilesOnly() async throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let option = SubtitleOption(source: .embedded(TrackRef(index: 2)), language: "en", title: nil, isForced: false,
+                                    isText: true)
+        let web = PlaybackMedia(
+            input: ResolvedInput(inputs: [.init(url: URL(string: "https://video.example/master.m3u8")!)], title: "Web"),
+            info: MediaInfo(duration: 60, video: [], audio: [], subtitles: []), subtitles: [option])
+        let files = try await pipeline(root).extractSubtitles(web)
+        #expect(files.files.isEmpty)
+    }
+
     @Test func burningInTextNeedsItsSubtitlesConverted() async throws {
         let root = try TestSupport.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

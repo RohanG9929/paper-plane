@@ -92,6 +92,18 @@ public struct ConversionPlan: Equatable, Sendable {
     public var frameRate: Double? = nil
     /// Subtitles drawn into the picture. Only with `.encode`.
     public var burnIn: BurnIn? = nil
+    /// The video's size, for scaling picture subtitles to it. nil when unknown.
+    public var videoSize: VideoSize? = nil
+}
+
+public struct VideoSize: Equatable, Sendable {
+    public var width: Int
+    public var height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+    }
 }
 
 public enum PlanError: Error, Equatable {

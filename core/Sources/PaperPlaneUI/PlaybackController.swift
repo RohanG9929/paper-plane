@@ -130,6 +130,9 @@ public final class PlaybackController {
     /// The video's audio tracks and its subtitles (tracks and sidecar files).
     public internal(set) var audioTracks: [AudioTrack] = []
     public internal(set) var subtitleOptions: [SubtitleOption] = []
+    /// The same, named for the menus once per video (names take locale lookups).
+    public internal(set) var audioChoices: [RemoteState.Choice] = []
+    public internal(set) var subtitleChoices: [RemoteState.Choice] = []
     /// The chosen audio track; nil until a session has started.
     public internal(set) var audio: TrackRef?
     /// The chosen subtitles' `SubtitleOption.id`; nil when off.
@@ -154,11 +157,15 @@ public final class PlaybackController {
     /// The text subtitles as WebVTT, once converted.
     @ObservationIgnored var subtitleFiles: SubtitleFiles?
     @ObservationIgnored var extracting: Task<SubtitleFiles?, Never>?
-    /// Counts playbacks, so work for an earlier one can tell it has been replaced.
-    @ObservationIgnored var generation = 0
     @ObservationIgnored private var starting: Task<Void, Never>?
-    /// A new session for a seek or a track change.
+    /// A new session for a seek or a track change. Work for a playback or session that has
+    /// been replaced finds its task cancelled.
     @ObservationIgnored var restarting: Task<Void, Never>?
+    /// While a seek's new session starts: where it goes. The old session plays on meanwhile,
+    /// so the clock and the converted-video window leave it alone.
+    @ObservationIgnored var seekTarget: Double?
+    /// Free space as last asked, which takes milliseconds.
+    @ObservationIgnored var freeSpaceChecked: (at: ContinuousClock.Instant, bytes: Int64)?
     /// Finishes once every stream stopped and every start cancelled so far has cleaned up.
     @ObservationIgnored private var cleanup: Task<Void, Never>?
     @ObservationIgnored var watchingEvents: Task<Void, Never>?
@@ -259,13 +266,14 @@ public final class PlaybackController {
         extracting?.cancel()
         if starting != nil || restarting != nil || stream != nil || extracting != nil {
             afterwards {
-                await stream?.stop()
-                await starting?.value
-                await restarting?.value
-                await extracting?.value?.remove()
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask { await stream?.stop() }
+                    group.addTask { await starting?.value }
+                    group.addTask { await restarting?.value }
+                    group.addTask { await extracting?.value?.remove() }
+                }
             }
         }
-        generation += 1
         self.starting = nil
         self.restarting = nil
         self.stream = nil
@@ -288,9 +296,12 @@ public final class PlaybackController {
         userPaused = false
         audioTracks = []
         subtitleOptions = []
+        audioChoices = []
+        subtitleChoices = []
         audio = nil
         subtitle = nil
         loading = nil
+        seekTarget = nil
         failureLog = nil
         segments = []
         conversionPaused = false
@@ -348,10 +359,15 @@ public final class PlaybackController {
             detail = Self.detail(for: media.info)
             audioTracks = media.info.audio
             subtitleOptions = media.subtitles
+            audioChoices = zip(media.info.audio, TrackNames.unique(media.info.audio.map(\.displayName)))
+                .map { RemoteState.Choice(id: $0.ref.id, name: $1) }
+            subtitleChoices = media.subtitles.map {
+                RemoteState.Choice(id: $0.id, name: media.subtitleNames[$0.id] ?? $0.displayName)
+            }
             startExtractingSubtitles(media, with: pipeline)
             // Subtitles are off unless the file marks a track as forced (spec §4, step 2).
             subtitle = media.subtitles.first(where: \.isForced)?.id
-            let stream = try await environment.startStream(pipeline, media, await request(at: 0))
+            let stream = try await environment.startStream(pipeline, media, try await request(at: 0))
             guard !Task.isCancelled else {
                 await stream.stop()
                 return
@@ -359,6 +375,7 @@ public final class PlaybackController {
             adopt(stream)
             phase = .waitingForTV
             externalPlaybackChanged()
+            networkChanged() // in case the address changed while this started
             if let jpeg = await environment.thumbnail(pipeline.tools, url, duration), self.stream === stream {
                 artwork = NSImage(data: jpeg)
             }
@@ -382,12 +399,11 @@ public final class PlaybackController {
     /// Converts the text subtitles in the background; sessions started afterwards offer them.
     private func startExtractingSubtitles(_ media: PlaybackMedia, with pipeline: StreamPipeline) {
         guard media.subtitles.contains(where: \.isText) else { return }
-        let generation = generation
         let environment = environment
         extracting = Task { [weak self] in
             let files = try? await environment.extractSubtitles(pipeline, media)
-            if let self, self.generation == generation {
-                self.subtitleFiles = files
+            if !Task.isCancelled { // stop() cancels it along with its playback
+                self?.subtitleFiles = files
             }
             return files
         }
@@ -514,7 +530,7 @@ public final class PlaybackController {
     }
 
     private func timeChanged(_ time: CMTime) {
-        guard let stream, phase == .onTV, loading == nil, time.isNumeric else { return }
+        guard let stream, phase == .onTV, seekTarget == nil, time.isNumeric else { return }
         movieTime = stream.session.offset + time.seconds
         manageWindow()
     }

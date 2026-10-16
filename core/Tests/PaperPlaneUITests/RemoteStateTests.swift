@@ -90,6 +90,40 @@ struct RemoteStateTests {
         #expect(failed.status == "Broken.")
     }
 
+    /// The remote's menu and the menu bar's show the same choices: audio when there's more than
+    /// one track, subtitles when there are any.
+    @Test func trackChoicesShowWhenThereIsAChoice() {
+        var state = Self.state(.playing)
+        state.audioChoices = [.init(id: "a", name: "English")]
+        #expect(!state.showsAudioChoices)
+        #expect(!state.showsSubtitleChoices)
+        state.audioChoices.append(.init(id: "b", name: "French"))
+        state.subtitleChoices = [.init(id: "s", name: "English")]
+        #expect(state.showsAudioChoices)
+        #expect(state.showsSubtitleChoices)
+        state.phase = .preparing
+        #expect(!state.showsAudioChoices)
+        #expect(!state.showsSubtitleChoices)
+    }
+
+    @Test func isLoadingOnlyWhileTheVideoIsLoaded() {
+        var state = Self.state(.playing)
+        #expect(!state.isLoading)
+        state.loading = "Moving to 1:00…"
+        #expect(state.isLoading)
+        state.phase = .failed("x")
+        #expect(!state.isLoading)
+    }
+
+    /// After a far seek the converted part starts where the new session does, not at 0:00.
+    @Test func theConvertedPartStartsWhereTheSessionDoes() {
+        var state = Self.state(.playing)
+        state.convertedFrom = 30
+        #expect(state.convertedNote == "Converted from 0:30 up to 0:40; a jump elsewhere takes a moment")
+        state.convertedFrom = 0
+        #expect(state.convertedNote == "Converted up to 0:40; a jump further on takes a moment")
+    }
+
     @Test func tracksCanBeChosenOnceTheVideoIsLoaded() {
         for phase in [RemoteState.Phase.choosingTV(tvWentAway: false), .playing, .paused] {
             #expect(Self.state(phase).canChooseTracks, "\(phase)")

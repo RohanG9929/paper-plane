@@ -18,7 +18,7 @@ public struct SegmentWindow: Equatable, Sendable {
 
         /// ffmpeg's name for it (`-hls_segment_filename seg_%05d.m4s`).
         public var fileName: String {
-            String(format: "seg_%05d.m4s", index)
+            String(format: HLSFileNames.segmentPattern, index)
         }
     }
 

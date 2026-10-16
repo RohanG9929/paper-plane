@@ -27,7 +27,7 @@ public struct SubtitleOption: Hashable, Sendable, Identifiable {
     /// Stable within one playback.
     public var id: String {
         switch source {
-        case .embedded(let ref): "track-\(ref.input)-\(ref.index)"
+        case .embedded(let ref): ref.id
         case .sidecar(let url): "file-\(url.lastPathComponent)"
         }
     }

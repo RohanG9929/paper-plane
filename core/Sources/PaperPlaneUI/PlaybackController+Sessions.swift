@@ -17,19 +17,12 @@ extension PlaybackController {
         case .onTV: isPaused ? .paused : .playing
         case .failed(let message): .failed(message)
         }
-        let audioNames = TrackNames.unique(audioTracks.map(\.displayName))
-        let subtitleNames = TrackNames.unique(subtitleOptions.map(\.displayName))
         return RemoteState(
             phase: remotePhase, title: title ?? "", detail: detail, elapsed: movieTime, duration: duration,
             converted: convertedEnd, volume: volume, showsWelcome: showsWelcome, notice: notice,
-            audioChoices: zip(audioTracks, audioNames).map { RemoteState.Choice(id: Self.id(of: $0.ref), name: $1) },
-            audio: audio.map(Self.id(of:)),
-            subtitleChoices: zip(subtitleOptions, subtitleNames).map { RemoteState.Choice(id: $0.id, name: $1) },
-            subtitle: subtitle, loading: loading, canShowLog: failureLog != nil, showsTVHelp: showsTVHelp)
-    }
-
-    static func id(of track: TrackRef) -> String {
-        "track-\(track.input)-\(track.index)"
+            audioChoices: audioChoices, audio: audio?.id, subtitleChoices: subtitleChoices, subtitle: subtitle,
+            loading: loading, canShowLog: failureLog != nil, showsTVHelp: showsTVHelp,
+            convertedFrom: stream?.session.offset)
     }
 
     // MARK: - Seeking
@@ -72,11 +65,9 @@ extension PlaybackController {
 
     /// Switches the audio: a new session at the current time (spec §4.2).
     public func selectAudio(_ id: String) {
-        guard stream != nil, let track = audioTracks.first(where: { Self.id(of: $0.ref) == id }),
-              track.ref != audio
-        else { return }
+        guard stream != nil, let track = audioTracks.first(where: { $0.ref.id == id }), track.ref != audio else { return }
         audio = track.ref
-        restart(at: movieTime, loading: "Switching to \(track.displayName)…")
+        restart(at: nil, loading: "Switching to \(track.displayName)…")
     }
 
     /// Shows the subtitles with `SubtitleOption.id` `id`, or none. Text subtitles the session
@@ -84,78 +75,91 @@ extension PlaybackController {
     /// session started, takes a new session at the current time.
     public func selectSubtitle(_ id: String?) {
         guard let stream, id != subtitle else { return }
-        let option = id.flatMap { id in subtitleOptions.first { $0.id == id } }
+        let option = id.flatMap(subtitleOption)
         guard id == nil || option != nil else { return }
         subtitle = option?.id
-        let burnsIn = option.map { !$0.isText || environment.settings().alwaysBurnInSubtitles } ?? false
-        if burnsIn || stream.plan.burnIn != nil {
-            restart(at: movieTime, loading: option == nil ? "Turning subtitles off…" : "Adding subtitles…")
-        } else if let option, stream.subtitleNames[option.id] == nil {
-            restart(at: movieTime, loading: "Adding subtitles…")
+        // Burned-in subtitles, and text the session doesn't offer yet, need a new session.
+        let needsSession = option.map { burnsIn($0) || stream.subtitleNames[$0.id] == nil } ?? false
+        if needsSession || stream.plan.burnIn != nil {
+            restart(at: nil, loading: option == nil ? "Turning subtitles off…" : "Adding subtitles…")
         } else {
             applySubtitleSelection()
         }
     }
 
-    /// What a session starting at `start` should show: the chosen audio, and the chosen
-    /// subtitles, waiting for them to be converted if need be. Text subtitles that couldn't be
-    /// converted are turned off, with a notice, rather than stopping the video.
-    func request(at start: Double) async -> StreamRequest {
-        var option = subtitle.flatMap { id in subtitleOptions.first { $0.id == id } }
+    func subtitleOption(_ id: String) -> SubtitleOption? {
+        subtitleOptions.first { $0.id == id }
+    }
+
+    /// Pictures are always drawn into the video; text is with "Always burn in subtitles".
+    func burnsIn(_ option: SubtitleOption) -> Bool {
+        !option.isText || environment.settings().alwaysBurnInSubtitles
+    }
+
+    /// What a session should show: the chosen audio, and the chosen subtitles, waiting for them
+    /// to be converted if need be. It starts at `start`, or, for a track change, wherever
+    /// playback has got to by then. Text subtitles that couldn't be converted are turned off,
+    /// with a notice, rather than stopping the video. Throws if the playback or session it was
+    /// for has been replaced meanwhile.
+    func request(at start: Double?) async throws -> StreamRequest {
+        var option = subtitle.flatMap(subtitleOption)
         if option?.isText == true, subtitleFiles == nil, let extracting {
-            subtitleFiles = await extracting.value
+            let files = await extracting.value
+            try Task.checkCancellation()
+            subtitleFiles = files
         }
         if let chosen = option, chosen.isText, subtitleFiles?.files[chosen.id] == nil {
             subtitle = nil
             option = nil
             show(notice: "Paper Plane couldn't read the subtitles “\(chosen.displayName)”.")
         }
-        let burnIn = option.flatMap { !$0.isText || environment.settings().alwaysBurnInSubtitles ? $0 : nil }
-        return StreamRequest(start: start, audio: audio, burnIn: burnIn, subtitles: subtitleFiles)
+        return StreamRequest(start: start ?? movieTime, audio: audio, burnIn: option.flatMap { burnsIn($0) ? $0 : nil },
+                             subtitles: subtitleFiles)
     }
 
     /// Selects the chosen subtitles among the current item's options, matched by their name in
     /// the master playlist (AVFoundation names options by language, so the NAME is the title).
+    /// The choice is read once the options have loaded, so quick changes end on the last one.
     func applySubtitleSelection() {
-        guard let stream, let item = player.currentItem else { return }
-        let name = stream.plan.burnIn == nil ? subtitle.flatMap { stream.subtitleNames[$0] } : nil
+        guard let item = player.currentItem else { return }
         Task { [weak self] in
             guard let group = try? await item.asset.loadMediaSelectionGroup(for: .legible) else { return }
-            var chosen: AVMediaSelectionOption?
-            if let name {
-                for option in group.options {
-                    let titles = AVMetadataItem.metadataItems(from: option.commonMetadata,
-                                                              filteredByIdentifier: .commonIdentifierTitle)
-                    if let title = try? await titles.first?.load(.stringValue), title == name {
-                        chosen = option
-                        break
-                    }
+            var titled: [(title: String, option: AVMediaSelectionOption)] = []
+            for option in group.options {
+                let titles = AVMetadataItem.metadataItems(from: option.commonMetadata,
+                                                          filteredByIdentifier: .commonIdentifierTitle)
+                if let title = try? await titles.first?.load(.stringValue) {
+                    titled.append((title, option))
                 }
             }
-            guard let self, self.player.currentItem === item else { return }
-            item.select(chosen, in: group) // nil turns subtitles off
+            guard let self, self.player.currentItem === item, let stream = self.stream else { return }
+            let name = stream.plan.burnIn == nil ? self.subtitle.flatMap { stream.subtitleNames[$0] } : nil
+            item.select(titled.first { $0.title == name }?.option, in: group) // nil turns subtitles off
         }
     }
 
     // MARK: - New sessions
 
-    /// Starts a new session at movie time `time` with the current choices, replacing the playing
-    /// one when it's ready. A newer seek or track change replaces this one.
-    func restart(at time: Double, loading text: String) {
+    /// Starts a new session with the current choices, replacing the playing one when it's ready:
+    /// at movie time `time` for a seek, or for a track change (nil) wherever playback has got to
+    /// by then. A newer seek or track change replaces this one.
+    func restart(at time: Double?, loading text: String) {
         guard let media else { return }
         if let earlier = restarting {
             earlier.cancel()
             afterwards { await earlier.value }
         }
         loading = text
-        movieTime = time
-        let generation = generation
+        seekTarget = time
+        if let time {
+            movieTime = time
+        }
         restarting = Task {
             do {
                 let pipeline = try self.pipeline()
-                let request = await self.request(at: time)
+                let request = try await self.request(at: time)
                 let stream = try await environment.startStream(pipeline, media, request)
-                guard !Task.isCancelled, self.generation == generation else {
+                guard !Task.isCancelled else {
                     await stream.stop()
                     return
                 }
@@ -163,6 +167,7 @@ extension PlaybackController {
                 adopt(stream)
                 afterwards { await old?.stop() }
                 loading = nil
+                seekTarget = nil
                 restarting = nil
                 if phase == .onTV {
                     if !userPaused {
@@ -172,8 +177,10 @@ extension PlaybackController {
                     // wait: over AirPlay the completion reports false even when the TV seeks.
                     player.seek(to: .zero) { _ in }
                 }
+                // The address may have changed while this session started on the old one.
+                networkChanged()
             } catch {
-                guard !Task.isCancelled, !(error is CancellationError), self.generation == generation else { return }
+                guard !Task.isCancelled, !(error is CancellationError) else { return }
                 log.error("Couldn't start a new session: \(String(describing: error), privacy: .private)")
                 fail(PlaybackError.message(for: error), error: error)
             }
@@ -181,12 +188,13 @@ extension PlaybackController {
     }
 
     /// The Mac's network changed. If its address moved, the TV can no longer reach the stream,
-    /// so serve it again from the new address at the current time (spec §6).
+    /// so serve it again from the new address at the current time (spec §6). While a new
+    /// session is starting this waits: that session checks again once it's ready.
     public func networkChanged() {
         guard let stream, loading == nil, let host = environment.host(),
               host != stream.server.baseURL.host()
         else { return }
-        restart(at: movieTime, loading: "Reconnecting…")
+        restart(at: nil, loading: "Reconnecting…")
     }
 
     // MARK: - The converted-video window
@@ -195,8 +203,9 @@ extension PlaybackController {
     /// what the player has left behind (spec §4.2). With little disk space, keeps less ahead and
     /// says so once.
     func manageWindow() {
-        guard let stream else { return }
-        let free = environment.freeSpace() ?? .max
+        // During a seek the old session still plays on the TV: its segments aren't behind.
+        guard let stream, seekTarget == nil else { return }
+        let free = freeSpace()
         let window = SegmentWindow.forFreeSpace(free)
         let actions = window.actions(playhead: movieTime - stream.session.offset, segments: segments,
                                      conversionPaused: conversionPaused, conversionFinished: conversionFinished)
@@ -217,5 +226,17 @@ extension PlaybackController {
             warnedAboutSpace = true
             show(notice: "Your Mac is low on disk space, so Paper Plane converts only a few minutes ahead.")
         }
+    }
+
+    /// Free space, asked for at most every 10 seconds: the query takes milliseconds of the main
+    /// thread, and the window is checked on every tick and segment.
+    private func freeSpace() -> Int64 {
+        let now = ContinuousClock.now
+        if let checked = freeSpaceChecked, now - checked.at < .seconds(10) {
+            return checked.bytes
+        }
+        let bytes = environment.freeSpace() ?? .max
+        freeSpaceChecked = (now, bytes)
+        return bytes
     }
 }

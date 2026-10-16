@@ -9,10 +9,15 @@ struct ProcessResult: Sendable {
 /// Runs a command to completion and captures its output. Cancelling the calling task
 /// terminates the child and throws `CancellationError`.
 enum ProcessRunner {
-    static func run(_ executable: URL, arguments: [String]) async throws -> ProcessResult {
+    /// `qualityOfService` `.background` also has macOS throttle the child's disk reads.
+    static func run(_ executable: URL, arguments: [String],
+                    qualityOfService: QualityOfService? = nil) async throws -> ProcessResult {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
+        if let qualityOfService {
+            process.qualityOfService = qualityOfService
+        }
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe

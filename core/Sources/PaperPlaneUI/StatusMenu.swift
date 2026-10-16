@@ -44,12 +44,12 @@ public enum StatusMenu {
                 items.append(Item(state.playButtonLabel, .togglePlay, isEnabled: state.canControlPlayback))
                 items.append(Item("Stop", .stop, key: "."))
             }
-            if state.canChooseTracks, state.audioChoices.count > 1 {
+            if state.showsAudioChoices {
                 items.append(Item("Audio", submenu: state.audioChoices.map {
                     Item($0.name, .selectAudio($0.id), isChecked: $0.id == state.audio)
                 }))
             }
-            if state.canChooseTracks, !state.subtitleChoices.isEmpty {
+            if state.showsSubtitleChoices {
                 items.append(Item("Subtitles", submenu: [Item("Off", .selectSubtitle(nil), isChecked: state.subtitle == nil)]
                     + state.subtitleChoices.map {
                         Item($0.name, .selectSubtitle($0.id), isChecked: $0.id == state.subtitle)

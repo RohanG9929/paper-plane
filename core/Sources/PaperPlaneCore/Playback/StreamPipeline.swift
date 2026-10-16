@@ -35,6 +35,10 @@ public struct StreamPipeline: Sendable {
     /// Converts the text subtitles to WebVTT, in a folder of their own.
     public func extractSubtitles(_ media: PlaybackMedia) async throws -> SubtitleFiles {
         let folder = try folders.create()
+        // A web stream's subtitles would mean downloading the whole video to read them.
+        guard media.input.inputs.allSatisfy(\.url.isFileURL) else {
+            return SubtitleFiles(folder: folder, files: [:])
+        }
         let files = await SubtitleExtractor(tools: tools).extract(media.subtitles, from: media.input, into: folder)
         return SubtitleFiles(folder: folder, files: files)
     }
@@ -62,7 +66,7 @@ public struct StreamPipeline: Sendable {
             try Task.checkCancellation()
             let server = try await StreamServer.start(serving: session.folder, on: host)
             let offeredNames = names.filter { session.subtitleNames.contains($0.value) }
-            return ServedStream(title: media.title, media: media.info, plan: plan, session: session, server: server,
+            return ServedStream(title: media.title, plan: plan, session: session, server: server,
                                 subtitleNames: offeredNames)
         } catch {
             await session.stop()
@@ -93,24 +97,24 @@ public enum SubtitleError: Error, Equatable {
 
 /// A video to play: what it contains and the subtitles it offers.
 public struct PlaybackMedia: Sendable {
-    public var input: ResolvedInput
-    public var info: MediaInfo
+    public let input: ResolvedInput
+    public let info: MediaInfo
     /// The file's subtitle tracks, then sidecar `.srt` files.
-    public var subtitles: [SubtitleOption]
+    public let subtitles: [SubtitleOption]
+    /// Each subtitle option's name, by option id: its display name, numbered where two would be
+    /// the same. Both the master playlist and the menus use it; the player's options are
+    /// matched by it.
+    public let subtitleNames: [String: String]
 
     public init(input: ResolvedInput, info: MediaInfo, subtitles: [SubtitleOption]) {
         self.input = input
         self.info = info
         self.subtitles = subtitles
+        subtitleNames = Dictionary(uniqueKeysWithValues: zip(subtitles.map(\.id),
+                                                             TrackNames.unique(subtitles.map(\.displayName))))
     }
 
     public var title: String { input.title }
-
-    /// Each subtitle option's name in the master playlist, by option id: its display name,
-    /// numbered where two would be the same.
-    public var subtitleNames: [String: String] {
-        Dictionary(uniqueKeysWithValues: zip(subtitles.map(\.id), TrackNames.unique(subtitles.map(\.displayName))))
-    }
 }
 
 /// Text subtitles converted to WebVTT for one playback, by `SubtitleOption.id`.
@@ -132,7 +136,6 @@ public struct SubtitleFiles: Sendable {
 /// A video being converted and served. Call `stop()` when playback ends.
 public final class ServedStream: Sendable {
     public let title: String
-    public let media: MediaInfo
     public let plan: ConversionPlan
     public let session: TranscodeSession
     public let server: StreamServer
@@ -140,10 +143,9 @@ public final class ServedStream: Sendable {
     /// player's options show, by `SubtitleOption.id`.
     public let subtitleNames: [String: String]
 
-    init(title: String, media: MediaInfo, plan: ConversionPlan, session: TranscodeSession, server: StreamServer,
+    init(title: String, plan: ConversionPlan, session: TranscodeSession, server: StreamServer,
          subtitleNames: [String: String] = [:]) {
         self.title = title
-        self.media = media
         self.plan = plan
         self.session = session
         self.server = server

@@ -11,29 +11,33 @@ public struct SubtitleExtractor: Sendable {
 
     /// Writes `<n>.vtt` into `folder` for each text option (`n` is its position in `options`)
     /// and returns the files by option id. A track that can't be converted is left out.
+    /// Sidecar files, which are small, are converted while the embedded tracks' pass reads the
+    /// video, at background priority so it doesn't compete with what the TV is fetching.
     /// Cancelling stops ffmpeg.
     public func extract(_ options: [SubtitleOption], from input: ResolvedInput,
                         into folder: URL) async -> [String: URL] {
-        var files: [String: URL] = [:]
         let numbered = options.enumerated().filter { $0.element.isText }
         let embedded = numbered.compactMap { item -> (Int, TrackRef)? in
             if case .embedded(let ref) = item.element.source { (item.offset, ref) } else { nil }
         }
-        if !embedded.isEmpty {
-            // One pass over the file for all tracks; if a track breaks it, one pass each.
-            let all = await convert(embedded, from: input, into: folder)
-            let made = all ? embedded : await embedded.asyncFilter { await convert([$0], from: input, into: folder) }
-            for (number, _) in made {
-                files[options[number].id] = Self.file(number, in: folder)
-            }
-        }
+        async let embeddedFiles = convertEmbedded(embedded, options: options, from: input, into: folder)
+        var files: [String: URL] = [:]
         for (number, option) in numbered {
             guard case .sidecar(let url) = option.source, !Task.isCancelled else { continue }
             if await convertSidecar(url, to: Self.file(number, in: folder)) {
                 files[option.id] = Self.file(number, in: folder)
             }
         }
-        return files
+        return files.merging(await embeddedFiles) { sidecar, _ in sidecar }
+    }
+
+    /// One pass over the file for all embedded tracks; if a track breaks it, one pass each.
+    private func convertEmbedded(_ embedded: [(Int, TrackRef)], options: [SubtitleOption], from input: ResolvedInput,
+                                 into folder: URL) async -> [String: URL] {
+        guard !embedded.isEmpty else { return [:] }
+        let all = await convert(embedded, from: input, into: folder)
+        let made = all ? embedded : await embedded.asyncFilter { await convert([$0], from: input, into: folder) }
+        return Dictionary(uniqueKeysWithValues: made.map { (options[$0.0].id, Self.file($0.0, in: folder)) })
     }
 
     static func file(_ number: Int, in folder: URL) -> URL {
@@ -42,14 +46,13 @@ public struct SubtitleExtractor: Sendable {
 
     /// One ffmpeg run writing each track to its own WebVTT file. True if every file was made.
     private func convert(_ tracks: [(Int, TrackRef)], from input: ResolvedInput, into folder: URL) async -> Bool {
-        var arguments = ffmpegQuietArguments + ["-y"]
-        for item in input.inputs {
-            arguments += item.ffmpegInputArguments(seek: 0)
-        }
+        var arguments = ffmpegQuietArguments + ["-y"] + input.ffmpegInputArguments(seek: 0)
         for (number, ref) in tracks {
             arguments += ["-map", ref.mapSpecifier, "-c:s", "webvtt", "-f", "webvtt", Self.file(number, in: folder).path]
         }
-        guard let result = try? await ProcessRunner.run(tools.ffmpeg, arguments: arguments), result.status == 0
+        guard let result = try? await ProcessRunner.run(tools.ffmpeg, arguments: arguments,
+                                                         qualityOfService: .background),
+              result.status == 0
         else { return false }
         return tracks.allSatisfy { FileManager.default.fileExists(atPath: Self.file($0.0, in: folder).path) }
     }
@@ -62,7 +65,9 @@ public struct SubtitleExtractor: Sendable {
         defer { try? FileManager.default.removeItem(at: utf8) }
         guard (try? Data(text.utf8).write(to: utf8)) != nil else { return false }
         let arguments = ffmpegQuietArguments + ["-y", "-i", utf8.path, "-c:s", "webvtt", "-f", "webvtt", output.path]
-        guard let result = try? await ProcessRunner.run(tools.ffmpeg, arguments: arguments) else { return false }
+        guard let result = try? await ProcessRunner.run(tools.ffmpeg, arguments: arguments,
+                                                         qualityOfService: .background)
+        else { return false }
         return result.status == 0
     }
 

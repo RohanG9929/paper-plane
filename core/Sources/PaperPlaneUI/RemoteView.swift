@@ -300,7 +300,7 @@ struct NowPlayingCard<RoutePicker: View>: View {
             Spacer()
 
             HStack(spacing: 4) {
-                if state.canChooseTracks, state.audioChoices.count > 1 || !state.subtitleChoices.isEmpty {
+                if state.showsAudioChoices || state.showsSubtitleChoices {
                     TracksMenu(state: state, selectAudio: actions.selectAudio, selectSubtitle: actions.selectSubtitle)
                 }
                 routePicker
@@ -384,7 +384,7 @@ struct StatusLine: View {
 
     var body: some View {
         switch state.phase {
-        case _ where state.loading != nil && state.canChooseTracks:
+        case _ where state.isLoading:
             label("hourglass", color: .secondary)
         case .preparing:
             label("hourglass", color: .secondary)
@@ -501,13 +501,13 @@ struct TracksMenu: View {
 
     private var menu: some View {
         Menu {
-            if state.audioChoices.count > 1 {
+            if state.showsAudioChoices {
                 Picker("Audio", selection: Binding(get: { state.audio ?? "" }, set: selectAudio)) {
                     ForEach(state.audioChoices) { Text($0.name).tag($0.id) }
                 }
                 .pickerStyle(.inline)
             }
-            if !state.subtitleChoices.isEmpty {
+            if state.showsSubtitleChoices {
                 Picker("Subtitles", selection: Binding(get: { state.subtitle ?? "" },
                                                        set: { selectSubtitle($0.isEmpty ? nil : $0) })) {
                     Text("Off").tag("")
@@ -579,14 +579,15 @@ struct Scrubber: View {
     var body: some View {
         let duration = state.duration ?? 0
         let played = dragFraction ?? RemoteState.fraction(of: state.elapsed, in: state.duration)
-        let ready = RemoteState.fraction(of: state.converted ?? 0, in: state.duration)
+        let readyFrom = RemoteState.fraction(of: state.convertedFrom ?? 0, in: state.duration)
+        let ready = max(RemoteState.fraction(of: state.converted ?? 0, in: state.duration), readyFrom)
         let shownTime = dragFraction.map { $0 * duration } ?? state.elapsed
         VStack(spacing: 6) {
             GeometryReader { geometry in
                 let width = geometry.size.width
                 ZStack(alignment: .leading) {
                     Capsule().fill(.quaternary)
-                    Capsule().fill(.tertiary).frame(width: width * ready)
+                    Capsule().fill(.tertiary).frame(width: width * (ready - readyFrom)).offset(x: width * readyFrom)
                     Capsule().fill(state.canControlPlayback ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                         .frame(width: max(6, width * played))
                 }
@@ -597,7 +598,6 @@ struct Scrubber: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             guard state.canControlPlayback, width > 0 else { return }
-                            // Only as far as can be played now; the thumb stops at the edge.
                             dragFraction = min(max(value.location.x / width, 0), state.seekableFraction)
                         }
                         .onEnded { _ in

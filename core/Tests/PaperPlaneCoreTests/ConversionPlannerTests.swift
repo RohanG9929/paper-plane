@@ -179,6 +179,11 @@ struct ConversionPlannerTests {
         #expect(hdr.videoRange == .pq)
     }
 
+    @Test func planKnowsTheVideosSizeForOverlays() throws {
+        let plan = try ConversionPlanner.plan(Self.media([Self.video(.h264, height: 720)], []))
+        #expect(plan.videoSize == VideoSize(width: 1280, height: 720))
+    }
+
     @Test func noBurnInLeavesTheVideoAlone() throws {
         let plan = try ConversionPlanner.plan(Self.media([Self.video(.h264)], []))
         #expect(plan.burnIn == nil)

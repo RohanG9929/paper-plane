@@ -12,6 +12,13 @@ enum HLSFileNames {
     static let burnInSubtitles = "burn-in.vtt"
 }
 
+extension ResolvedInput {
+    /// Every input's options, seek and `-i`, in order.
+    func ffmpegInputArguments(seek: Double) -> [String] {
+        inputs.flatMap { $0.ffmpegInputArguments(seek: seek) }
+    }
+}
+
 extension ResolvedInput.Input {
     /// This input's options, a seek when `seek` > 0 (before `-i`, so ffmpeg jumps straight
     /// there), and `-i`.
@@ -33,10 +40,7 @@ extension ConversionPlan {
     /// event playlist (`index.m3u8`, `init.mp4`, `seg_00000.m4s`, …) into `output`,
     /// starting `start` seconds into the media.
     public func ffmpegArguments(input: ResolvedInput, start: Double, output: URL) -> [String] {
-        var args = ffmpegQuietArguments
-        for item in input.inputs {
-            args += item.ffmpegInputArguments(seek: start)
-        }
+        var args = ffmpegQuietArguments + input.ffmpegInputArguments(seek: start)
 
         var filters = burnIn == .text ? ["subtitles=f=\(HLSFileNames.burnInSubtitles)"] : []
         if case .encode(let encode) = videoAction, encode.toneMapToSDR {
@@ -44,12 +48,20 @@ extension ConversionPlan {
             filters.insert(Self.toneMapFilter, at: 0)
         }
         if case .picture(let subtitles) = burnIn {
-            // The video's own filters first, then the subtitles on top.
-            let base = filters.isEmpty
-                ? "[\(video.mapSpecifier)]"
-                : "[\(video.mapSpecifier)]" + filters.joined(separator: ",") + "[base];[base]"
-            args += ["-filter_complex", base + "[\(subtitles.mapSpecifier)]overlay=eof_action=pass[video]",
-                     "-map", "[video]"]
+            // The video's own filters first, the subtitles scaled from their own canvas (1080p
+            // even on 4K discs) to the video's size, then laid on top.
+            var graph = ""
+            var base = "[\(video.mapSpecifier)]"
+            if !filters.isEmpty {
+                graph += base + filters.joined(separator: ",") + "[base];"
+                base = "[base]"
+            }
+            var overlay = "[\(subtitles.mapSpecifier)]"
+            if let videoSize {
+                graph += overlay + "scale=\(videoSize.width):\(videoSize.height)[subtitles];"
+                overlay = "[subtitles]"
+            }
+            args += ["-filter_complex", graph + base + overlay + "overlay=eof_action=pass[video]", "-map", "[video]"]
         } else {
             args += ["-map", video.mapSpecifier]
             if !filters.isEmpty {

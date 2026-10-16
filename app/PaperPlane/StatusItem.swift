@@ -82,11 +82,10 @@ final class StatusItem: NSObject, NSMenuDelegate, NSWindowDelegate {
     // MARK: - Icon
 
     private func followIcon() {
-        withObservationTracking {
+        observeContinuously { [weak self] in
+            guard let self else { return }
             item.button?.image = NSImage(systemSymbolName: controller.isActive ? "paperplane.fill" : "paperplane",
                                          accessibilityDescription: "Paper Plane")
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.followIcon() }
         }
     }
 }

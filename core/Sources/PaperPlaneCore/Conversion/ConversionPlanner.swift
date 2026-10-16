@@ -17,7 +17,8 @@ public enum ConversionPlanner {
             audioAction: audio.map { audioAction(for: $0, profile: profile) },
             videoRange: videoRange(of: video, after: action),
             frameRate: video.frameRate,
-            burnIn: choice.burnIn)
+            burnIn: choice.burnIn,
+            videoSize: video.width > 0 && video.height > 0 ? VideoSize(width: video.width, height: video.height) : nil)
     }
 
     // MARK: - Video

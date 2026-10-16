@@ -15,6 +15,7 @@ Paper Plane converts on the fly whatever your TV can't play, copying everything 
 - The speech-bubble button switches the audio track and the subtitles, including `Movie.srt` and `Movie.en.srt` files beside the video.
 - Settings (in the menu bar menu) has three switches for TVs that differ from the one Paper Plane was tested with: surround sound, HDR to SDR, and burning in subtitles.
 - If something goes wrong, Show Log reveals a log in `~/Library/Logs/Paper Plane/` for a bug report. It leaves out cookies, passwords and your home folder's path.
+- Your Mac stays awake while the TV plays, but closing a laptop's lid still puts it to sleep and stops the video.
 
 ## Development
 

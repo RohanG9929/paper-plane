@@ -104,6 +104,18 @@ struct FFmpegArgumentsTests {
         ]))
     }
 
+    /// Blu-ray subtitles are drawn on a canvas of their own (1080p even for 4K discs); scaled to
+    /// the video, they land where they belong on any size.
+    @Test func pictureSubtitlesAreScaledToTheVideo() {
+        let encode = VideoEncode(encoder: .hevc, keepHDR: nil, toneMapToSDR: false, bitrate: 16_000_000)
+        var plan = Self.plan(.encode(encode))
+        plan.burnIn = .picture(TrackRef(index: 4))
+        plan.videoSize = VideoSize(width: 3840, height: 2160)
+        #expect(plan.ffmpegArguments(input: Self.movie, start: 0, output: Self.output).contains(subsequence: [
+            "-filter_complex", "[0:4]scale=3840:2160[subtitles];[0:0][subtitles]overlay=eof_action=pass[video]",
+        ]))
+    }
+
     @Test func textSubtitlesAreDrawnAfterToneMapping() {
         let encode = VideoEncode(encoder: .h264, keepHDR: nil, toneMapToSDR: true, bitrate: 8_000_000)
         var plan = Self.plan(.encode(encode))

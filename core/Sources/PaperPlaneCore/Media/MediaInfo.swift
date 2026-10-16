@@ -9,6 +9,9 @@ public struct TrackRef: Hashable, Sendable {
 
     /// The value for ffmpeg's `-map`.
     public var mapSpecifier: String { "\(input):\(index)" }
+
+    /// Names the track in pickers and menus, for audio and subtitles alike.
+    public var id: String { "track-\(input)-\(index)" }
 }
 
 public enum VideoCodecName: Hashable, Sendable {

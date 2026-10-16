@@ -74,6 +74,16 @@ struct RemoteStateTests {
         #expect(unknown.seekableFraction == 0.1) // only up to where it is now
     }
 
+    @Test func explainsHowFarYouCanSeek() {
+        #expect(Self.state(.playing).convertedNote == "Ready up to 0:40")
+        var finished = Self.state(.playing)
+        finished.converted = 100
+        #expect(finished.convertedNote == "")
+        var unknown = Self.state(.playing)
+        unknown.converted = nil
+        #expect(unknown.convertedNote == "")
+    }
+
     @Test func volumeIsInertUntilTheTVPlays() {
         #expect(Self.state(.playing).canAdjustVolume)
         #expect(Self.state(.paused).canAdjustVolume)

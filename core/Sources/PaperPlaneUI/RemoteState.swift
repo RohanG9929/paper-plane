@@ -59,6 +59,13 @@ public struct RemoteState: Equatable, Sendable {
         max(Self.fraction(of: converted ?? elapsed, in: duration), Self.fraction(of: elapsed, in: duration))
     }
 
+    /// "Ready up to 0:40" while the conversion is behind the end, so the lighter part of the track
+    /// explains itself. Empty once everything is converted or when unknown.
+    public var convertedNote: String {
+        guard let converted, let duration, converted < duration else { return "" }
+        return "Ready up to \(TimeText.clock(converted))"
+    }
+
     public var status: String {
         switch phase {
         case .idle: ""

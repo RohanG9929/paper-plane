@@ -4312,3 +4312,24 @@ If it fails:
 - The app builds in Debug and Release with no warnings, and Task 10's smoke test passes.
 - `docs/sony-test-results.md` has the re-test (or "not run") and rows P1–P10 filled in. P2 and P3 pass: a dropped copy-mode MKV plays on the Sony.
 - CI is green on the owner's personal GitHub repository.
+
+---
+
+## Added during execution
+
+### Task 13: A pretty, clean UI (added at the owner's request)
+
+The owner asked, after this plan was saved, for a "pretty and clean" app. Task 13 ran after Task 10 and before Tasks 11 and 12 (see the ledger rulings). It was test-driven and design-iterated, so its code lives in the commits, not in this document:
+- **`PaperPlaneUI`:** a second library in `core/` with the remote's views over a plain `RemoteState`:
+  - welcome, drop zone, and a Now Playing card with artwork, scrubber, transport, volume and AirPlay;
+  - `TimeText` and `MediaSummary` formatting.
+  - Tests: `RemoteStateTests` and the formatting tests, plus `RemoteSnapshotTests`, which render every state light and dark with `ImageRenderer`. `scripts/render-ui.sh` writes the renders to `docs/design/`.
+- **`Thumbnail`** (core): one scaled JPEG frame for the artwork (`ThumbnailTests`).
+- **App:**
+  - `PlaybackController` produces `RemoteState`, and handles skip and seek within the converted part, volume, the one-time welcome and "TV disconnected".
+  - The remote window has a transparent title bar.
+  - The menu is grouped, with ⌘O, ⌘1, ⌘. and ⌘Q.
+  - The menu bar icon fills while busy.
+  - The app icon is drawn by `scripts/make-icon.swift` into `Assets.xcassets`.
+- **Design audit (claude-mem:design-is):** `docs/design/DESIGN-IS-2026-10-15/`. It scored 22/30 (REFINE). Its fixes are applied; the remaining polish moves carry into Plan 3.
+- **Verification:** UI and core tests green; `scripts/check-quit-cleanup.sh` (quit at any moment, and a quick second open) clean; the app builds with warnings as errors.

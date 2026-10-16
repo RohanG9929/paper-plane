@@ -11,6 +11,8 @@ struct RoutePicker: NSViewRepresentable {
         picker.player = player
         picker.isRoutePickerButtonBordered = false
         picker.setAccessibilityLabel("Choose TV")
+        // Match the rest of the control row; it turns the accent colour while AirPlay is on.
+        picker.setRoutePickerButtonColor(.labelColor, for: .normal)
         return picker
     }
 

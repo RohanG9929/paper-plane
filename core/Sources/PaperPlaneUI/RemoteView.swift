@@ -68,7 +68,7 @@ public struct RemoteView<RoutePicker: View>: View {
             // The drop zone highlights itself; everywhere else the window gets a ring.
             if isDropTarget && (state.showsWelcome || state.phase != .idle) {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color.accentColor, lineWidth: 3)
+                    .strokeBorder(.tint, lineWidth: 3)
                     .padding(4)
             }
         }
@@ -153,10 +153,10 @@ struct DropZone: View {
         .frame(maxWidth: .infinity)
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(isTargeted ? AnyShapeStyle(Color.accentColor.opacity(0.08)) : AnyShapeStyle(.clear))
+                .fill(isTargeted ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(.clear))
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
-                .foregroundStyle(isTargeted ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
+                .foregroundStyle(isTargeted ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary))
         }
         .padding(16)
         .accessibilityElement(children: .contain)
@@ -219,17 +219,17 @@ struct NowPlayingCard<RoutePicker: View>: View {
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var transport: some View {
         HStack {
             Button(action: actions.stop) {
-                Image(systemName: "stop.fill").font(.system(size: 14, weight: .semibold))
+                Image(systemName: "stop.circle").font(.system(size: 20, weight: .regular))
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.primary)
             .keyboardShortcut(".", modifiers: .command)
             .accessibilityLabel("Stop")
             .help("Stop")
@@ -254,8 +254,8 @@ struct NowPlayingCard<RoutePicker: View>: View {
                 .frame(width: 32, height: 32)
                 .background {
                     if case .choosingTV = state.phase {
-                        Circle().fill(Color.accentColor.opacity(0.18))
-                        Circle().strokeBorder(Color.accentColor, lineWidth: 1.5)
+                        Circle().fill(.tint.opacity(0.18))
+                        Circle().strokeBorder(.tint, lineWidth: 1.5)
                     }
                 }
                 .help("Choose your TV")
@@ -312,7 +312,7 @@ struct StatusLine: View {
         case .preparing:
             label("hourglass", color: .secondary)
         case .choosingTV:
-            label("airplayvideo", color: .accentColor, weight: .semibold)
+            label("airplayvideo", color: .tint, weight: .semibold)
         case .playing:
             label("tv", color: .secondary)
         case .paused:
@@ -322,11 +322,13 @@ struct StatusLine: View {
         }
     }
 
-    private func label(_ symbol: String, color: Color, weight: Font.Weight = .medium) -> some View {
+    private func label(_ symbol: String, color: some ShapeStyle, weight: Font.Weight = .medium) -> some View {
         Label(state.status, systemImage: symbol)
+            .symbolVariant(.none)
             .font(.caption.weight(weight))
             .foregroundStyle(color)
             .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -365,10 +367,10 @@ struct PlayButton: View {
         Button(action: action) {
             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(enabled ? AnyShapeStyle(.white) : AnyShapeStyle(.tertiary))
                 .offset(x: isPlaying ? 0 : 2)
                 .frame(width: 56, height: 56)
-                .background(Circle().fill(enabled ? Color.accentColor : Color.secondary.opacity(0.35)))
+                .background(Circle().fill(enabled ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary)))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -418,7 +420,7 @@ struct Scrubber: View {
                 ZStack(alignment: .leading) {
                     Capsule().fill(.quaternary)
                     Capsule().fill(.tertiary).frame(width: width * ready)
-                    Capsule().fill(state.canControlPlayback ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                    Capsule().fill(state.canControlPlayback ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                         .frame(width: max(6, width * played))
                 }
                 .frame(height: dragFraction == nil ? 6 : 8)
@@ -448,8 +450,10 @@ struct Scrubber: View {
             .foregroundStyle(.secondary)
         }
         .opacity(state.canControlPlayback ? 1 : 0.5)
+        .help(state.convertedNote)
         .accessibilityElement()
         .accessibilityLabel("Playback position")
+        .accessibilityHint(state.convertedNote)
         .accessibilityValue(state.duration.map { "\(TimeText.spoken(state.elapsed)) of \(TimeText.spoken($0))" }
             ?? TimeText.spoken(state.elapsed))
         .accessibilityAdjustableAction { direction in

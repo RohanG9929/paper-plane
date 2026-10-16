@@ -49,7 +49,9 @@ struct RemoteSnapshotTests {
             for scheme in [ColorScheme.light, .dark] {
                 let artwork = state.phase == .preparing || name == "failed" ? nil : Self.sampleArtwork
                 let view = RemoteView(state: state, artwork: artwork, actions: RemoteActions()) {
-                    Image(systemName: "airplayvideo").font(.system(size: 17)).foregroundStyle(.secondary)
+                    // Stand-in for AVRoutePickerView, which ImageRenderer can't draw; the app sets
+                    // the real one's colour to match (RoutePicker.swift).
+                    Image(systemName: "airplayvideo").font(.system(size: 17)).foregroundStyle(.primary)
                 }
                 .environment(\.colorScheme, scheme)
                 let renderer = ImageRenderer(content: view)

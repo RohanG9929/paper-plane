@@ -72,6 +72,8 @@ struct FileResponderTests {
         ("bytes=0-1,4-5", .whole),
         ("items=0-1", .whole),
         ("bytes=x-y", .whole),
+        ("bytes=0-9223372036854775807", .partial(0..<10)), // Int.max: must not overflow and crash
+        ("bytes=-9223372036854775807", .partial(0..<10)),
     ] as [(String?, FileResponder.ByteRange)])
     func byteRanges(header: String?, expected: FileResponder.ByteRange) {
         #expect(FileResponder.byteRange(header, size: 10) == expected)

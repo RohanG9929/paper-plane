@@ -1,5 +1,6 @@
 import AppKit
 import PaperPlaneCore
+import PaperPlaneUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -20,7 +21,11 @@ struct PaperPlaneApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let controller = PlaybackController()
+    private static let welcomeKey = "didShowWelcome"
+    let controller = PlaybackController(
+        environment: .live(bundleURL: Bundle.main.bundleURL),
+        showsWelcome: !UserDefaults.standard.bool(forKey: welcomeKey),
+        welcomeSeen: { UserDefaults.standard.set(true, forKey: welcomeKey) })
     private lazy var remote = RemoteWindow(
         controller: controller,
         openVideo: { [weak self] in self?.chooseVideo() },

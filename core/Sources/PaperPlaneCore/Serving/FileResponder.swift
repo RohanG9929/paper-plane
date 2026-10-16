@@ -71,7 +71,8 @@ struct FileResponder: Sendable {
         let last = Int(spec[1].trimmingCharacters(in: .whitespaces))
         switch (first, last) {
         case (let first?, let last?) where first <= last:
-            return first < size ? .partial(first..<min(last + 1, size)) : .unsatisfiable
+            // Clamp before adding 1: `last` can be Int.max.
+            return first < size ? .partial(first..<(min(last, size - 1) + 1)) : .unsatisfiable
         case (let first?, nil) where spec[1].isEmpty:
             return first < size ? .partial(first..<size) : .unsatisfiable
         case (nil, let suffix?) where spec[0].isEmpty:

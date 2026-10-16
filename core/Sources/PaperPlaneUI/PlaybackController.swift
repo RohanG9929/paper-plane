@@ -3,13 +3,48 @@ import AVFoundation
 import Observation
 import os
 import PaperPlaneCore
-import PaperPlaneUI
 
 /// Plays one video at a time on the TV: probe → plan → transcode → serve → AVPlayer → AirPlay
 /// (spec §4). Seeking past what's converted, track changes and recovery come with Milestone 2.
 @MainActor @Observable
-final class PlaybackController {
-    enum Phase: Equatable {
+public final class PlaybackController {
+    /// What the controller needs from the outside world, so tests can stand in for it.
+    public struct Environment: Sendable {
+        /// ffmpeg and ffprobe, or nil when missing.
+        public var tools: @Sendable () -> ToolPaths?
+        /// The address the stream server listens on, or nil when the Mac is offline.
+        public var host: @Sendable () -> String?
+        public var folders: SessionFolders
+        public var profile: OutputProfile
+        /// Probe → plan → transcode → serve.
+        public var startStream: @Sendable (StreamPipeline, ResolvedInput) async throws -> ServedStream
+        /// A JPEG for the artwork.
+        public var thumbnail: @Sendable (ToolPaths, URL, Double?) async -> Data?
+
+        public init(tools: @escaping @Sendable () -> ToolPaths?, host: @escaping @Sendable () -> String?,
+                    folders: SessionFolders = .standard, profile: OutputProfile = .default,
+                    startStream: @escaping @Sendable (StreamPipeline, ResolvedInput) async throws -> ServedStream
+                        = { try await $0.start($1) },
+                    thumbnail: @escaping @Sendable (ToolPaths, URL, Double?) async -> Data? = { tools, url, duration in
+                        await Thumbnail.jpeg(tools: tools, input: .init(url: url), at: Thumbnail.moment(duration: duration))
+                    }) {
+            self.tools = tools
+            self.host = host
+            self.folders = folders
+            self.profile = profile
+            self.startStream = startStream
+            self.thumbnail = thumbnail
+        }
+
+        /// The app's own: the ffmpeg in its bundle (or Homebrew's in a development build) and the
+        /// Mac's LAN address.
+        public static func live(bundleURL: URL) -> Environment {
+            Environment(tools: { ToolPaths.inBundle(at: bundleURL) ?? ToolPaths.locate() },
+                        host: { LANAddress.current() })
+        }
+    }
+
+    public enum Phase: Equatable {
         case idle
         case preparing
         /// Loaded but held paused until a TV is chosen. With no TV, AVPlayer would play on the
@@ -22,24 +57,26 @@ final class PlaybackController {
     /// Whether to seek to the start once the TV takes over, in case it began at a growing
     /// playlist's live edge (docs/sony-test-results.md, row 7a and the Plan 2 re-test).
     static let seeksToStartOnTV = true
-    private static let welcomeKey = "didShowWelcome"
 
-    let player = AVPlayer()
-    private(set) var phase = Phase.idle
-    private(set) var title: String?
-    private(set) var detail = ""
-    private(set) var isPaused = true
-    private(set) var movieTime = 0.0
-    private(set) var duration: Double?
+    public let player = AVPlayer()
+    public private(set) var phase = Phase.idle
+    public private(set) var title: String?
+    public private(set) var detail = ""
+    public private(set) var isPaused = true
+    public private(set) var movieTime = 0.0
+    public private(set) var duration: Double?
     /// How far the conversion has got, in movie time.
-    private(set) var convertedEnd: Double?
-    private(set) var artwork: NSImage?
-    private(set) var tvWentAway = false
-    private(set) var showsWelcome = !UserDefaults.standard.bool(forKey: welcomeKey)
-    var volume = 1.0 {
+    public private(set) var convertedEnd: Double?
+    public private(set) var artwork: NSImage?
+    public private(set) var tvWentAway = false
+    public private(set) var showsWelcome: Bool
+    public var volume = 1.0 {
         didSet { player.volume = Float(volume) }
     }
 
+    @ObservationIgnored private let environment: Environment
+    @ObservationIgnored private let welcomeSeen: @MainActor () -> Void
+    @ObservationIgnored private var pausedWhenTVWentAway = false
     @ObservationIgnored private var stream: ServedStream?
     @ObservationIgnored private var starting: Task<Void, Never>?
     @ObservationIgnored private var watchingEvents: Task<Void, Never>?
@@ -47,7 +84,12 @@ final class PlaybackController {
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private let log = Logger(subsystem: "dev.paperplane.app", category: "playback")
 
-    init() {
+    /// `showsWelcome` is whether the one-time explainer is still due; `welcomeSeen` is called
+    /// once it has been dismissed, to remember that.
+    public init(environment: Environment, showsWelcome: Bool, welcomeSeen: @escaping @MainActor () -> Void) {
+        self.environment = environment
+        self.showsWelcome = showsWelcome
+        self.welcomeSeen = welcomeSeen
         player.allowsExternalPlayback = true
         observations = [
             player.observe(\.isExternalPlaybackActive) { [weak self] _, _ in
@@ -66,7 +108,7 @@ final class PlaybackController {
 
     // MARK: - State for the UI
 
-    var isActive: Bool {
+    public var isActive: Bool {
         switch phase {
         case .preparing, .waitingForTV, .onTV: true
         case .idle, .failed: false
@@ -74,7 +116,7 @@ final class PlaybackController {
     }
 
     /// What the remote window shows.
-    var remoteState: RemoteState {
+    public var remoteState: RemoteState {
         let remotePhase: RemoteState.Phase = switch phase {
         case .idle: .idle
         case .preparing: .preparing
@@ -89,7 +131,7 @@ final class PlaybackController {
     // MARK: - Commands
 
     /// Plays the first video among `urls`, replacing whatever is playing.
-    func play(_ urls: [URL]) {
+    public func play(_ urls: [URL]) {
         if showsWelcome {
             dismissWelcome()
         }
@@ -107,7 +149,7 @@ final class PlaybackController {
         starting = Task { await start(url) }
     }
 
-    func togglePause() {
+    public func togglePause() {
         guard phase == .onTV else { return }
         if isPaused {
             player.play()
@@ -117,14 +159,14 @@ final class PlaybackController {
     }
 
     /// Moves by `seconds` (−10 or +10), within what has been converted so far.
-    func skip(by seconds: Double) {
+    public func skip(by seconds: Double) {
         seek(toMovieTime: movieTime + seconds)
     }
 
     /// Goes to `time` in the movie. Until Milestone 2 restarts the conversion for a seek, it stays
     /// within what has been converted. The TV seeks whether or not AirPlay reports it finished
     /// (docs/sony-test-results.md, row 7b), so there is nothing to wait for.
-    func seek(toMovieTime time: Double) {
+    public func seek(toMovieTime time: Double) {
         guard phase == .onTV, let stream else { return }
         let offset = stream.session.offset
         let latest = max(offset, (convertedEnd ?? movieTime) - 1)
@@ -133,7 +175,7 @@ final class PlaybackController {
         player.seek(to: CMTime(seconds: target - offset, preferredTimescale: 600))
     }
 
-    func stop() {
+    public func stop() {
         starting?.cancel()
         starting = nil
         watchingEvents?.cancel()
@@ -154,14 +196,14 @@ final class PlaybackController {
         tvWentAway = false
     }
 
-    func dismissWelcome() {
+    public func dismissWelcome() {
         showsWelcome = false
-        UserDefaults.standard.set(true, forKey: Self.welcomeKey)
+        welcomeSeen()
     }
 
     /// Stops ffmpeg and waits for it, before the app quits. A start still in progress is
     /// cancelled and awaited too: its cleanup stops ffmpeg and deletes its session folder.
-    func shutDown() async {
+    public func shutDown() async {
         let stream = stream
         let starting = starting
         stop()
@@ -173,16 +215,17 @@ final class PlaybackController {
 
     private func start(_ url: URL) async {
         do {
-            guard let tools = ToolPaths.inBundle(at: Bundle.main.bundleURL) ?? ToolPaths.locate() else {
-                throw PlaybackError.noFFmpeg
-            }
-            guard let host = LANAddress.current() else { throw PlaybackError.offline }
-            let stream = try await StreamPipeline(tools: tools, host: host).start(.file(url))
+            guard let tools = environment.tools() else { throw PlaybackError.noFFmpeg }
+            guard let host = environment.host() else { throw PlaybackError.offline }
+            let pipeline = StreamPipeline(tools: tools, folders: environment.folders, profile: environment.profile,
+                                          host: host)
+            let stream = try await environment.startStream(pipeline, .file(url))
             guard !Task.isCancelled else {
                 await stream.stop()
                 return
             }
-            log.info("Serving \(stream.title, privacy: .public) at \(stream.url.absoluteString, privacy: .private)")
+            // What people watch is private: names, paths and URLs never go to the log in the clear.
+            log.info("Serving \(stream.title, privacy: .private) at \(stream.url.absoluteString, privacy: .private)")
             self.stream = stream
             duration = stream.media.duration
             movieTime = stream.session.offset
@@ -191,15 +234,14 @@ final class PlaybackController {
             player.replaceCurrentItem(with: AVPlayerItem(url: stream.url))
             phase = .waitingForTV
             externalPlaybackChanged()
-            if let jpeg = await Thumbnail.jpeg(tools: tools, input: .init(url: url),
-                                                at: Thumbnail.moment(duration: duration)),
-               self.stream === stream {
+            if let jpeg = await environment.thumbnail(tools, url, duration), self.stream === stream {
                 artwork = NSImage(data: jpeg)
             }
-        } catch is CancellationError {
-            // stop() or a newer play() took over.
         } catch {
-            log.error("Couldn't play \(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
+            // stop() or a newer play() took over: whatever this start ran into, it is no longer
+            // this controller's business, and acting on it would stop the newer video.
+            guard !Task.isCancelled, !(error is CancellationError) else { return }
+            log.error("Couldn't play \(url.lastPathComponent, privacy: .private): \(String(describing: error), privacy: .private)")
             let name = title
             stop()
             title = name
@@ -215,7 +257,7 @@ final class PlaybackController {
             case .finished:
                 convertedEnd = duration ?? convertedEnd
             case .failed(let message):
-                log.error("ffmpeg failed: \(message, privacy: .public)")
+                log.error("ffmpeg failed: \(message, privacy: .private)")
                 let name = title
                 stop()
                 title = name
@@ -236,12 +278,17 @@ final class PlaybackController {
 
     // MARK: - Player
 
-    private func externalPlaybackChanged() {
-        log.info("External playback active: \(self.player.isExternalPlaybackActive), phase: \(String(describing: self.phase), privacy: .public)")
-        if player.isExternalPlaybackActive {
+    /// `active` overrides the player's own `isExternalPlaybackActive`, for tests: nothing but a
+    /// real AirPlay TV can set it.
+    func externalPlaybackChanged(active: Bool? = nil) {
+        let active = active ?? player.isExternalPlaybackActive
+        log.info("External playback active: \(active), phase: \(String(describing: self.phase), privacy: .private)")
+        if active {
             guard phase == .waitingForTV else { return }
             phase = .onTV
+            let resumesPaused = tvWentAway && pausedWhenTVWentAway
             tvWentAway = false
+            guard !resumesPaused else { return } // it was paused before the TV dropped out
             player.play()
             if Self.seeksToStartOnTV, movieTime <= (stream?.session.offset ?? 0) + 1 {
                 // Don't wait for the completion handler: over AirPlay it reports finished == false
@@ -250,6 +297,7 @@ final class PlaybackController {
             }
         } else if phase == .onTV {
             // The TV went away. Never carry on playing on the Mac.
+            pausedWhenTVWentAway = isPaused
             player.pause()
             tvWentAway = true
             phase = .waitingForTV

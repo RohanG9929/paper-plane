@@ -1,4 +1,5 @@
 import AppKit
+import PaperPlaneUI
 import SwiftUI
 
 /// The menu bar icon's menu: what's playing first, then opening things, then quitting.

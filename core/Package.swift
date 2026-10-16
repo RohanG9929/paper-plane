@@ -10,9 +10,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "PaperPlaneCore"),
-        // The app's SwiftUI views, kept out of the app target so tests can render them to PNG.
-        .target(name: "PaperPlaneUI"),
+        // The app's SwiftUI views and its playback controller, kept out of the app target so tests
+        // can render the views to PNG and drive the controller.
+        .target(name: "PaperPlaneUI", dependencies: ["PaperPlaneCore"]),
         .testTarget(name: "PaperPlaneCoreTests", dependencies: ["PaperPlaneCore"]),
-        .testTarget(name: "PaperPlaneUITests", dependencies: ["PaperPlaneUI"]),
+        .testTarget(name: "PaperPlaneUITests", dependencies: ["PaperPlaneUI", "PaperPlaneCore"]),
     ]
 )

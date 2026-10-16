@@ -44,7 +44,7 @@ Milestone 3 is "Extension (detection, ranking, popup, pause), `paperplane-host`,
    - `onHeadersReceived` classifies HLS, DASH and video files by content type and extension.
    - Segments count as activity for the stream whose playlist's folder holds them.
    - Candidates are kept per tab in `chrome.storage.session`, at most 20 per tab, and cleared when the tab loads a new page.
-10. **DASH** streams are detected and ranked but sent as `format: "dash"`; ffmpeg reads DASH manifests directly. *Cost if wrong:* some DASH sites need per-segment headers ffmpeg doesn't repeat.
+10. **DASH is not offered yet** (revised after review). The bundled ffmpeg is built without libxml2, so it has no DASH reader. The extension still recognises DASH manifests but doesn't offer them, and the app answers a `dash` request with "Paper Plane can't play this site's kind of stream (DASH) yet." Building ffmpeg with libxml2 (`--enable-libxml2`) would turn it on; that's for a later plan, with a Sony check. *Cost:* DASH-only sites show "No video found yet".
 11. **Button states** (§5.1):
     - Grey with no candidates, and its popup explains what to do.
     - Coloured with one confident candidate: a click sends it.
@@ -65,7 +65,11 @@ Milestone 3 is "Extension (detection, ranking, popup, pause), `paperplane-host`,
 16. **The window for web streams:** ffmpeg is not paused (`SIGSTOP`) for web inputs, because the site may drop the idle connection (spec §4.2 says stop instead). v1 lets it run and still deletes what's behind; restarting a stopped web session from the converted edge comes later.
     - When disk space is low, the notice says "a long video may stop part-way through", since the window can't keep less ahead.
     - *Cost if wrong:* disk use grows with what's downloaded ahead, bounded by deletion behind.
-17. **Errors** (§6): ffmpeg or ffprobe reporting HTTP 401, 403, 404 or another 4xx (410 Gone among them) becomes "The site stopped the stream — click Paper Plane in your browser again". This applies at the start or part-way through. Logs redact cookies, authorization and query strings (Plan 1's `Redaction`).
+17. **Errors** (§6): ffmpeg or ffprobe reporting HTTP 400, 401, 403, 404 or another 4xx (410 Gone among them) becomes "The site stopped the stream — reload the page, then click Paper Plane again". This applies at the start, or when ffmpeg fails part-way through.
+    - *Ruling:* the wording differs from the spec's "click Paper Plane in your browser again", because a page that hasn't reloaded sends the same expired link.
+    - When a site refuses the rest of an HLS stream, ffmpeg skips what it can't get and finishes without an error. The proxy notices the refusal (decision 31), and the remote says "The site stopped sending this video part-way through. Reload the page, then click Paper Plane again for the rest." The video plays on to where it got.
+    - Other failures of a web stream say "Paper Plane couldn't get this video from the site", not "this file".
+    - Logs redact cookies, authorization and query strings (Plan 1's `Redaction`).
 
 ## Taken while building
 
@@ -89,3 +93,29 @@ Milestone 3 is "Extension (detection, ranking, popup, pause), `paperplane-host`,
 30. **Messages are checked on arrival:**
     - Content scripts' video reports are checked for shape and capped at 20 videos and 2,048 characters per source.
     - The popup is recognised by its address, and content scripts take orders only from the extension.
+    - Titles are cut to 200 characters.
+
+## From the reviews
+
+31. **ffmpeg reads web streams through a proxy in the app** (security review, two MEDIUM findings). ffmpeg sends a site's `-headers` to every host the playlist names, and fetches any address it names (checked in the source and by experiment). That leaked the site's cookie to other hosts, and let a page's playlist send requests into the local network. Now:
+    - ffmpeg is given `http://127.0.0.1:<port>/<token>/<input>/<scheme>/<host>/<path>` and no headers. The proxy fetches each request itself, with no cookie store or cache.
+    - The cookie, Referer and Origin go only to the stream's own site: the same host, or the same registrable domain (the last two labels, three under a two-part suffix such as co.uk).
+    - Loopback, private, link-local, shared and multicast addresses are refused, after name lookup, unless the stream itself is on one.
+    - Playlists (known by type, name or content) have their absolute, root-relative and protocol-relative addresses pointed back at the proxy. Relative ones resolve there by themselves.
+    - Redirects go back to ffmpeg, rewritten, so each hop passes the same checks.
+    - ffmpeg's `-cookies` with a domain was tried and dropped: it sent the cookie to every host or to none.
+    - *Cost if wrong:* a site whose segments need its cookie on a different registrable domain won't play. The log says the site refused.
+32. **An HLS master plays its best variant:** the tallest video, then the highest bandwidth, with that variant's own audio and any shared renditions. ffprobe lists every variant's streams, and the first was often the smallest. Only that variant is fetched.
+33. **HLS segments may be named anything** (`-extension_picky 0`, for HLS inputs only; ffmpeg rejects the option elsewhere). The protocol list and the proxy cover what the check was for.
+34. **A silent site is given up on**: 20 seconds in the proxy, 30 in ffmpeg (`-rw_timeout`). The helper waits up to 5 minutes for the app's answer, since a slow site can take a while to be ready for the TV.
+35. **Live streams restart at their live edge.** A network change or another audio track starts the new session there, not as far in as the clock has run. Control Center's and the media keys' skips and seeks do nothing for them.
+36. **Variants found later are still variants**: an HLS playlist in a subfolder of a master's folder, fetched from the master's frame and host, is linked to it whenever it comes, so a change of quality mid-film doesn't add a second "master". Candidates are dropped by how recently they were active, not first seen.
+37. **The bridge leaves another copy's socket alone.** A second copy of the app (a development build beside the installed one) doesn't take over a socket that answers. On quit, the app removes only its own socket file. Requests arriving while the app quits are answered "Paper Plane is quitting".
+38. **No manifests from a translocated app.** An app opened where it was downloaded runs from a temporary path that goes away. It writes no manifests until moved to Applications.
+39. **The extension does no work for nothing.** Unchanged state isn't saved, and an unchanged button isn't redrawn. Activity is noted at most every 5 seconds. Frames report only `<video>` events, say when they leave, and send at most 20 videos. Prerendered pages don't clear the tab.
+40. **The toolbar button opens the popup by default** (`default_popup`). It sends at a click only once one video is the clear choice, so a page the extension hasn't seen yet still explains itself.
+
+Deferred, with costs:
+- **Resting web streams.** Through the proxy, an HLS session could be rested safely, since each segment is its own request. A progressive file would need backpressure on its download. Until then a long web video is converted ahead as fast as the site allows, bounded by deleting what's behind.
+- **Playlists' variants by parsing the master** in the extension, instead of folder and timing heuristics.
+- **`<video>` inside shadow roots** is invisible to the content script, so for such players there's no pause and the start time is 0.

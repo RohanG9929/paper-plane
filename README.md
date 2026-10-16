@@ -23,9 +23,9 @@ Paper Plane converts on the fly whatever your TV can't play, copying everything 
 2. In Chrome or Brave, open `chrome://extensions`, turn on Developer mode, click Load unpacked and choose `extension/dist`.
 3. Open Paper Plane once, so the browser can reach it.
 
-Then play a video on a site and click the paper plane in the toolbar. It's grey until it finds a video; when it's sure which one you're watching, a click sends it, and when it isn't, it shows a count and lets you choose. Paper Plane comes forward to choose your TV, starts where the browser was, and the browser's video pauses. Live streams play live. YouTube comes in a later version.
+Then play a video on a site and click the paper plane in the toolbar. It's grey until it finds a video; when it's sure which one you're watching, a click sends it, and when it isn't, it shows a count and lets you choose. Paper Plane comes forward to choose your TV, starts where the browser was, and the browser's video pauses. Live streams play live. YouTube, and sites that only offer DASH streams, come in a later version.
 
-The extension passes the site's cookies for the video along to Paper Plane, which uses them only to fetch that video and never saves them.
+The extension passes the site's cookies for the video along to Paper Plane, which sends them only to that site, only to fetch that video, and never saves them.
 
 ## Development
 

@@ -240,12 +240,15 @@ final class UpstreamFetch: NSObject, URLSessionDataDelegate, @unchecked Sendable
     let body: AsyncThrowingStream<Data, any Error>
     private let chunks: AsyncThrowingStream<Data, any Error>.Continuation
     private let waiting = OSAllocatedUnfairLock<CheckedContinuation<HTTPURLResponse, any Error>?>(initialState: nil)
+    private let followsRedirects: Bool
     /// Set once in `begin`, before anything else can touch them.
     private var session: URLSession?
     private var task: URLSessionDataTask?
 
-    static func start(_ request: URLRequest) async throws -> (HTTPURLResponse, UpstreamFetch) {
-        let fetch = UpstreamFetch()
+    /// The proxy hands redirects back to ffmpeg; the yt-dlp updater has them followed
+    /// (`followsRedirects`), though never from HTTPS to plain HTTP.
+    static func start(_ request: URLRequest, followsRedirects: Bool = false) async throws -> (HTTPURLResponse, UpstreamFetch) {
+        let fetch = UpstreamFetch(followsRedirects: followsRedirects)
         let response = try await withCheckedThrowingContinuation { continuation in
             fetch.waiting.withLock { $0 = continuation }
             fetch.begin(request)
@@ -253,10 +256,11 @@ final class UpstreamFetch: NSObject, URLSessionDataDelegate, @unchecked Sendable
         return (response, fetch)
     }
 
-    private override init() {
+    private init(followsRedirects: Bool) {
         var chunks: AsyncThrowingStream<Data, any Error>.Continuation?
         body = AsyncThrowingStream { chunks = $0 }
         self.chunks = chunks!
+        self.followsRedirects = followsRedirects
         super.init()
     }
 
@@ -288,7 +292,13 @@ final class UpstreamFetch: NSObject, URLSessionDataDelegate, @unchecked Sendable
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(nil)
+        let downgrade = Self.isDowngrade(from: task.originalRequest?.url, to: request.url)
+        completionHandler(followsRedirects && !downgrade ? request : nil)
+    }
+
+    /// From HTTPS to anything less.
+    static func isDowngrade(from original: URL?, to next: URL?) -> Bool {
+        original?.scheme?.lowercased() == "https" && next?.scheme?.lowercased() != "https"
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,

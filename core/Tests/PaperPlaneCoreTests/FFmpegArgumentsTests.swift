@@ -13,7 +13,7 @@ struct FFmpegArgumentsTests {
         "-hls_flags", "independent_segments+temp_file", "-start_number", "0", "/tmp/session/index.m3u8",
     ]
 
-    static func plan(_ video: VideoAction, audio: AudioAction? = .copy) -> ConversionPlan {
+    static func plan(_ video: VideoAction, audio: AudioAction? = .copy(.ac3)) -> ConversionPlan {
         ConversionPlan(video: TrackRef(index: 0), videoAction: video,
                        audio: audio == nil ? nil : TrackRef(index: 2), audioAction: audio)
     }
@@ -28,21 +28,29 @@ struct FFmpegArgumentsTests {
         ] + Self.hlsTail)
     }
 
+    /// AAC from MPEG-TS (most HLS sites, and .ts files) carries ADTS headers that fMP4 can't
+    /// hold; the filter rewrites them and passes other AAC through. Dolby audio needs nothing.
+    @Test func copiedAACIsMadeFitForMP4() {
+        let aac = Self.plan(.copy(.h264), audio: .copy(.aac)).ffmpegArguments(input: Self.movie, start: 0, output: Self.output)
+        #expect(aac.contains(subsequence: ["-c:a", "copy", "-bsf:a", "aac_adtstoasc"]))
+        let ac3 = Self.plan(.copy(.h264), audio: .copy(.ac3)).ffmpegArguments(input: Self.movie, start: 0, output: Self.output)
+        #expect(!ac3.contains("-bsf:a"))
+    }
+
     @Test func startOffsetGoesBeforeEachInput() {
         let input = ResolvedInput(inputs: [
             .init(url: URL(string: "https://cdn.example.com/video.mp4")!, headers: ["Cookie": "a=1"]),
             .init(url: URL(string: "https://cdn.example.com/audio.m4a")!, headers: ["Cookie": "a=1"]),
         ], title: "Clip")
         let plan = ConversionPlan(video: TrackRef(input: 0, index: 0), videoAction: .copy(.h264),
-                                  audio: TrackRef(input: 1, index: 0), audioAction: .copy)
+                                  audio: TrackRef(input: 1, index: 0), audioAction: .copy(.aac))
         let args = plan.ffmpegArguments(input: input, start: 754.25, output: Self.output)
-        #expect(Array(args.prefix(20)) == [
-            "-hide_banner", "-nostdin", "-nostats", "-loglevel", "error",
-            "-headers", "Cookie: a=1\r\n", "-ss", "754.250", "-i", "https://cdn.example.com/video.mp4",
-            "-headers", "Cookie: a=1\r\n", "-ss", "754.250", "-i", "https://cdn.example.com/audio.m4a",
-            "-map", "0:0", "-map",
-        ])
-        #expect(args[20] == "1:0")
+        let web = ResolvedInput.Input.webOnly
+        #expect(Array(args.prefix(24)) == ["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error"]
+            + web + ["-headers", "Cookie: a=1\r\n", "-ss", "754.250", "-i", "https://cdn.example.com/video.mp4"]
+            + web + ["-headers", "Cookie: a=1\r\n", "-ss", "754.250", "-i", "https://cdn.example.com/audio.m4a",
+                     "-map", "0:0", "-map"])
+        #expect(args[24] == "1:0")
     }
 
     @Test func hevcCopyIsTaggedForApple() {

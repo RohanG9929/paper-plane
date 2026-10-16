@@ -20,6 +20,29 @@ HLS_TYPES = {
 class Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, **HLS_TYPES}
 
+    def admit(self):
+        """Test hooks that act like a site: /status/<code>/… answers with that status, and
+        /cookie/<name>=<value>/… serves the rest of the path only with that cookie."""
+        parts = self.path.split("/", 3)  # "", hook, argument, rest
+        if len(parts) >= 3 and parts[1] == "status":
+            self.send_error(int(parts[2]))
+            return False
+        if len(parts) >= 3 and parts[1] == "cookie":
+            cookies = [cookie.strip() for cookie in self.headers.get("Cookie", "").split(";")]
+            if parts[2] not in cookies:
+                self.send_error(403)
+                return False
+            self.path = "/" + (parts[3] if len(parts) > 3 else "")
+        return True
+
+    def do_GET(self):
+        if self.admit():
+            super().do_GET()
+
+    def do_HEAD(self):
+        if self.admit():
+            super().do_HEAD()
+
     def log_message(self, format, *args):
         if self.server.verbose:
             super().log_message(format, *args)

@@ -17,21 +17,23 @@ struct ResolvedInputTests {
             url: URL(string: "https://cdn.example.com/v/master.m3u8?token=abc")!,
             headers: ["Referer": "https://example.com/watch", "Cookie": "a=1; b=2", "user-agent": "Chrome/140"])
         #expect(input.ffmpegLocation == "https://cdn.example.com/v/master.m3u8?token=abc")
-        #expect(input.ffmpegOptions == [
+        #expect(input.ffmpegOptions == ResolvedInput.Input.webOnly + [
             "-user_agent", "Chrome/140",
             "-headers", "Cookie: a=1; b=2\r\nReferer: https://example.com/watch\r\n",
         ])
     }
 
-    @Test func webInputWithoutHeadersHasNoOptions() {
+    /// A site's playlist can name any URL; ffmpeg may follow only web ones, never file:, udp: or
+    /// rtp: (security review, Plan 4).
+    @Test func webInputsReachOnlyTheWeb() {
         let input = ResolvedInput.Input(url: URL(string: "https://example.com/v.mp4")!)
-        #expect(input.ffmpegOptions == [])
+        #expect(input.ffmpegOptions == ["-protocol_whitelist", "https,http,tls,tcp,crypto,data"])
     }
 
     @Test func headerLineBreaksAreStripped() {
         let input = ResolvedInput.Input(
             url: URL(string: "https://example.com/v.mp4")!,
             headers: ["Cookie": "a=1\r\nX-Injected: yes"])
-        #expect(input.ffmpegOptions == ["-headers", "Cookie: a=1X-Injected: yes\r\n"])
+        #expect(input.ffmpegOptions == ResolvedInput.Input.webOnly + ["-headers", "Cookie: a=1X-Injected: yes\r\n"])
     }
 }

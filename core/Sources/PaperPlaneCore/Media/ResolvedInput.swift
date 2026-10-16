@@ -18,13 +18,17 @@ public struct ResolvedInput: Equatable, Sendable {
             url.isFileURL ? url.path : url.absoluteString
         }
 
+        /// What a web input, and every playlist or segment it names, may be read over: never
+        /// file:, udp: or rtp:, whatever a site's playlist says.
+        static let webOnly = ["-protocol_whitelist", "https,http,tls,tcp,crypto,data"]
+
         /// Options that must come right before this input's `-i` (ffmpeg) or the input (ffprobe).
         public var ffmpegOptions: [String] {
             guard !url.isFileURL else { return [] }
             var remaining = Dictionary(
                 headers.map { (Self.stripLineBreaks($0.key), Self.stripLineBreaks($0.value)) },
                 uniquingKeysWith: { first, _ in first })
-            var options: [String] = []
+            var options = Self.webOnly
             if let key = remaining.keys.first(where: { $0.lowercased() == "user-agent" }),
                let agent = remaining.removeValue(forKey: key) {
                 options += ["-user_agent", agent]

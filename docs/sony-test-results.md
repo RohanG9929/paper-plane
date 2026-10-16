@@ -170,7 +170,7 @@ These rows need the owner at the TV or in their own browser.
 
 | # | Check | Expected | Result |
 |---|---|---|---|
-| Y1 | In Chrome, play a YouTube video (for example Big Buck Bunny) and click the paper plane | The popup or the click sends it; the remote says "Getting your video ready…" with the video's own title; choose the Sony; it plays from where the browser was, and the browser's video pauses. If the remote says something about formats or signing in, run `brew install deno`, try again, and note which | Needs the owner at the TV |
+| Y1 | In Chrome, play a YouTube video (for example Big Buck Bunny) and click the paper plane | The popup or the click sends it; the remote says "Getting your video ready…" with the video's own title; choose the Sony; it plays from where the browser was, and the browser's video pauses. If the remote says YouTube needs Deno, run `brew install deno` and try again; note any other message | Needs the owner at the TV |
 | Y2 | Watch Y1 for ten minutes, then seek far ahead and back | No stalls; "Moving to…", then the TV plays from there. Stalls would mean YouTube throttles one long request (chunked requests are deferred in the Milestone 4 decisions) | Needs the owner at the TV |
 | Y3 | A YouTube live stream | The remote shows "Live"; the TV plays it live | Needs the owner at the TV |
 | Y4 | A video that needs you signed in (age-restricted, or a members' video you can watch), signed in to YouTube in Chrome | It plays: the browser's cookie reached yt-dlp. In a private window, signed out, the remote names YouTube's reason instead | Needs the owner in their browser |
@@ -180,3 +180,5 @@ These rows need the owner at the TV or in their own browser.
 | Y8 | Drag a YouTube link from Chrome's address bar onto the remote, then onto the menu bar icon | Each plays | Needs the owner at the Mac |
 | Y9 | `defaults delete dev.paperplane.app ytDlpLastUpdateCheck`, quit and open Paper Plane, wait a minute | If yt-dlp has had a release since the bundled one, `~/Library/Application Support/Paper Plane/bin/yt-dlp.version` names it | Needs the owner at the Mac |
 | Y10 | In Brave, repeat Y1 | As Y1 | Needs the owner at the TV |
+| Y11 | Click the paper plane on a YouTube video and, while the remote still says "Getting your video ready…", quit Paper Plane from the menu | It quits within a few seconds, and `pgrep -fl yt-dlp` in Terminal prints nothing | Needs the owner at the Mac |
+| Y12 | A YouTube Short (youtube.com/shorts/…), from the browser | It plays upright at 1080×1920, not small | Needs the owner at the TV |

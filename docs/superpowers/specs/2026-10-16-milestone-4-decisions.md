@@ -74,12 +74,38 @@ Milestone 4 is "Bundled yt-dlp, the update mechanism, the `kind: "page"` path, t
 
 13. **An extraction that fails is retried once, after an update that brought a newer yt-dlp.** This covers a missing yt-dlp and a failed extraction. It doesn't cover the time limit or a cancel, and the same yt-dlp isn't run twice for the same answer. Then the messages are:
     - yt-dlp's reason, the first sentence of its last `ERROR:` line: "Paper Plane couldn't get this video: Private video."
-    - "Paper Plane didn't find a video at this link." for an unsupported URL, a playlist with nothing playable, or a result with no usable format.
+    - "Paper Plane didn't find a video at this link." for an unsupported URL or a playlist with nothing in it, and "Paper Plane can't play this site's kind of stream yet." when only formats ffmpeg can't read are offered.
     - "Paper Plane's YouTube helper is missing. Reinstall Paper Plane." when there's no yt-dlp at all.
     - "The site took too long to answer. Try again." at the 60-second limit.
 
     The failure log keeps yt-dlp's stderr, redacted like ffmpeg's.
 14. **What to do next follows where the video came from.** A site that stops a stream from the browser says "reload the page, then click Paper Plane again"; one from a copied link says "choose Play Copied Link again".
+
+## From the reviews
+
+15. **YouTube pages go to yt-dlp as www.youtube.com** (code review). yt-dlp keeps a header cookie to the exact host it's given and asks www.youtube.com for the video, so a page on m.youtube.com, music.youtube.com, bare youtube.com or youtu.be (`youtu.be/ID` becomes `watch?v=ID`) would lose the sign-in.
+16. **yt-dlp is told where the app's ffmpeg is** (`--ffmpeg-location`, code review). It uses ffmpeg to judge which formats can be merged, and a Mac without Homebrew's has none on PATH.
+17. **A failed page asks GitHub only once an hour** (code review, simplify). The immediate update after a failure (spec §6) is skipped when a check was made within the hour and there's a copy to run. A link to something that isn't a video (yt-dlp's "Unsupported URL") isn't retried at all. A failure-time check counts as the day's.
+18. **⌘V plays a copied link only in the remote** (code review, simplify). Edit ▸ Paste reaches the remote's window; in Settings it does nothing.
+19. **A release's tag is kept exactly as released** (simplify). It names the download folder, so `2026.10.09.000915` must not come back as `.915`. Versions still compare as numbers.
+20. **The proxy's redirect policy is explicit** (simplify). The web proxy hands every redirect back to ffmpeg; only the updater follows them, over HTTPS. Each caller says which, so no default can turn the proxy's checks off.
+21. **yt-dlp runs as its own responsible process** (security review, MEDIUM). It's started with posix_spawn and responsibility disclaimed, in the temporary folder. So neither yt-dlp nor a program another process puts in its place in Application Support (with a `.version` claiming it's newer) can use the Desktop, Documents or Downloads access the user gave Paper Plane. This uses a private call in libsystem (`responsibility_spawnattrs_setdisclaim`), as browsers do for their helpers. Without it the spawn fails closed. A test asks macOS which process is responsible for the running stand-in.
+22. **Local fetches need every address of the host to be local** (security review). Any local address still refuses a fetch, but only a wholly local stream (or page) lets its fetches be local, so a public name with one extra 127.0.0.1 record lifts nothing.
+23. **Up to 1080p by the shorter side** (Opus). `-S res:1080` replaces the `[height<=1080]` filters, which sent a vertical Short (1080×1920) at 480×854.
+24. **Only what ffmpeg reads can be chosen** (Opus). The format filters refuse DASH, RTMP, RTSP, MMS, Smooth Streaming, f4m, websockets and storyboards, so yt-dlp falls through to a playable format instead of returning one Paper Plane must refuse.
+25. **No network, an unreachable site and a missing Deno get their own words** (Opus). Offline is said before yt-dlp runs. A transport error is "Paper Plane couldn't reach the site. Check your connection, then try again." yt-dlp's JavaScript-runtime warning becomes "YouTube now needs Deno to give Paper Plane this video. Install it with "brew install deno" in Terminal, then try again." None of these is retried after an update, and Python's "(caused by …)" is cut from reasons.
+26. **Stopping doesn't wait for a silent site** (Opus). A request waiting for a site's first answer, in the proxy or the updater, ends when its task is cancelled.
+27. **Smaller things from Opus.** A download cut short by a quit or crash is removed before the next. A channel link (a playlist of playlists) and a page with several parts (`multi_video`) play their first video.
+
+Skipped from the reviews, with reasons:
+- **A hard kill for yt-dlp's Python child.** PyInstaller's bootloader passes SIGTERM on to it, and a process-group kill needs a spawner of our own. Sony row Y11 (quit while a page is being looked at) shows it.
+- **One cancelled caller cancels a shared update download.** It only happens when a page is stopped during the launch check's download; the next launch tries again.
+- **The onedir `yt-dlp_macos.zip` build** (faster start than onefile) and **trimming yt-dlp's answer with `-O`**. Both need the real yt-dlp to try.
+- **One opt-out key for every check-time side effect**, **a `YtDlpResolver` type** and **one origin type for inputs and messages**. Behaviour-neutral refactors, left for a quieter day.
+- **Falling back to the shipped yt-dlp when an updated one can't run at all.** It's rare (yt-dlp's releases are tested), and the next release replaces it.
+- **`--no-plugin-dirs`.** It would keep the owner's own yt-dlp plugins out. It can't be tried without the real yt-dlp, an unknown option would stop every page, and only someone who can already run code as the owner can add a plugin.
+- **Notarization.** It will need yt-dlp signed with the hardened runtime, and likely `disable-library-validation` for its unpacked Python. That's the owner's release step.
+- **Header cookies are a deprecated path in yt-dlp.** If a later yt-dlp refuses them, cookies can go to it through `--cookies` on a pipe instead. Sony row Y4 would show the change.
 
 ## Deferred, with costs
 

@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Paper Plane",
+  "version": "0.1.0",
+  "description": "Sends the video you're watching to your AirPlay TV, through Paper Plane for Mac.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwUHRPS7pTfKqQ55Sfxvm4k9oBWQvNnMIMjoBWCSiPPgRm3bPDlrETLurqsinb/uMzDCcIvqolYgnWnKksvlOAmahabXFXv/qsCW06pc3ExRY4wTFYNMQO14JvQS01Bu97jIv9PV84f2kbgWxA1uLlz0QRLM+RYmS8Y0FPMa71w2ALi31X3mm8N5IyJzb9Tv/C1nv05607/voFos8uq8r+ZHz5wLzwSPih3V5f8fd7e+QqWRl0EZ9DDyL9QyX7MFyYgwd0NdQAnWVvI/v3FRWajoXAcbQ7DfisXlBReeCFsFZW/N9GZ0Wte9iaGUalm+aQmXJSJMFX2rT7CvVM50ncQIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": ["webRequest", "nativeMessaging", "storage", "scripting", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "Paper Plane: no video found yet",
+    "default_icon": {
+      "16": "icons/idle-16.png",
+      "32": "icons/idle-32.png",
+      "48": "icons/idle-48.png",
+      "128": "icons/idle-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

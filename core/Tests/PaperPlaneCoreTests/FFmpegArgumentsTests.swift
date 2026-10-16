@@ -28,6 +28,18 @@ struct FFmpegArgumentsTests {
         ] + Self.hlsTail)
     }
 
+    @Test func aTrimDropsEverythingBeforeItAsAnOutputOption() {
+        // After the input, so ffmpeg drops packets (both tracks) instead of seeking the input.
+        let args = Self.plan(.copy(.h264)).ffmpegArguments(input: Self.movie, start: 0, output: Self.output,
+                                                           trim: 2.432833)
+        #expect(args == [
+            "-hide_banner", "-nostdin", "-nostats", "-loglevel", "error",
+            "-i", "/Movies/Movie: Part 1 (Director's Cut) é.mkv",
+            "-map", "0:0", "-map", "0:2", "-map_chapters", "-1", "-ss", "2.432833",
+            "-c:v", "copy", "-c:a", "copy",
+        ] + Self.hlsTail)
+    }
+
     /// AAC from MPEG-TS (most HLS sites, and .ts files) carries ADTS headers that fMP4 can't
     /// hold; the filter rewrites them and passes other AAC through. Dolby audio needs nothing.
     @Test func copiedAACIsMadeFitForMP4() {

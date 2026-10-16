@@ -69,6 +69,12 @@ clip h264_multiaudio.mkv -f lavfi -i "$VIDEO" -f lavfi -i "$STEREO" -f lavfi -i 
   -c:a:0 aac -b:a:0 128k -ac:a:0 2 -c:a:1 ac3 -b:a:1 448k \
   -metadata:s:a:0 language=eng -metadata:s:a:1 language=jpn -disposition:a:0 0 -disposition:a:1 default
 clip audio_only.m4a -f lavfi -i "$STEREO" -c:a aac -b:a 128k -ac 2
+# 20 s with a keyframe every 5 s, for seeks that land far from a keyframe.
+clip h264_aac_longgop.mp4 -f lavfi -i "testsrc=size=1280x720:rate=30:duration=20" \
+  -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=20" \
+  -c:v libx264 -preset veryfast -pix_fmt yuv420p -g 150 -keyint_min 150 -sc_threshold 0 -c:a aac -b:a 128k -ac 2
+# A lossless trim starting mid-GOP: an edit list hides the lead-in, like phone and QuickTime trims.
+clip h264_aac_editlist.mp4 -ss 2.5 -i "$OUT/h264_aac_longgop.mp4" -c copy -t 15
 
 printf 'This is not a video file.\n' > "$OUT/corrupt.mkv"
 echo "made    corrupt.mkv"

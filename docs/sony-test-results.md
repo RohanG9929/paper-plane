@@ -130,3 +130,27 @@ Everything up to the TV was checked on the Mac on 2026-10-16 (the controller's t
 | M17 | An HDR film with burned-in subtitles (M7 or M8) | Note whether the subtitle text looks uncomfortably bright on the TV | Needs the owner at the TV |
 | M18 | Watching past 6:00, press back on the Sony's own remote to 0:30 | Note whether the TV plays from there or shows an error: Paper Plane deletes what's more than 5 minutes behind, and a seek made on the TV itself can't start a new session | Needs the owner at the TV |
 | M19 | With Full Keyboard Access on (System Settings → Keyboard), Tab through the remote | Each button (stop, skips, play, captions, AirPlay) shows a blue ring when it has focus | Needs the owner at the Mac |
+
+## Plan 4: videos from Chrome and Brave on the Sony
+
+Set up first: build and load the extension as the README says (Chrome's extensions page should show the ID `napcmmglefncoieikecpjmdopmagllcg`), then open Paper Plane once.
+
+Everything short of the TV and a real browser profile was checked on this Mac on 2026-10-16:
+- `scripts/check-bridge.sh` sends requests through the real helper to the app: a stream plays, a refused one names the site, and the helper starts a quit app.
+- `scripts/check-extension.sh` loads the extension into a headless Chrome with a throwaway profile. It finds a playing `<video>`, sends it through the helper to the app, which takes it, and the page's video pauses.
+- The ranking is tested against request sequences shaped like real sites. Recording real sites' requests needs a browser session, so B4 and B5 are where real sites are first seen.
+
+These rows need the owner at the TV or in their own browser.
+
+| # | Check | Expected | Result |
+|---|---|---|---|
+| B1 | In Chrome, play an HLS video (for example one of the streams on Apple's HLS examples page, developer.apple.com/streaming/examples) and click the paper plane in the toolbar | The button is blue once the video plays. Paper Plane comes forward; choose the Sony; the video plays on the TV from about where the browser was, and the browser's video pauses | Needs the owner at the TV |
+| B2 | A plain .mp4 video in a tab (any direct link to an .mp4 file) | As B1 | Needs the owner at the TV |
+| B3 | Seek far ahead and back in a B1 video from the remote | "Moving to…", then the TV plays from there (the site's link is fetched again with its cookies) | Needs the owner at the TV |
+| B4 | A news site with an ad before its video: wait for the article's video, then click | The article's video goes to the TV, not the ad | Needs the owner in their browser |
+| B5 | A page with two playing videos | The button shows "2"; the popup lists both, and either can be sent | Needs the owner in their browser |
+| B6 | A live stream (a news channel's live HLS) | The remote shows "Live" instead of the scrubber; the TV plays it live; the skip buttons are off | Needs the owner at the TV |
+| B7 | A YouTube video page: click the paper plane | A "!" on the button; the popup says "YouTube comes in a later version of Paper Plane." Whatever was playing carries on | Needs the owner in their browser |
+| B8 | Quit Paper Plane, then click the paper plane on a playing video | Paper Plane starts within a few seconds and takes the video | Needs the owner in their browser |
+| B9 | In Brave, repeat B1 | As B1 (the app installs the helper for Brave once Brave has been opened) | Needs the owner at the TV |
+| B10 | Leave a site's video for an hour or more, then send it | Either it plays, or the remote says "The site stopped the stream — click Paper Plane in your browser again" (its link expired) | Needs the owner at the TV |

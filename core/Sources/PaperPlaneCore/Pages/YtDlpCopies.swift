@@ -1,0 +1,101 @@
+import Foundation
+
+/// A yt-dlp release: `2026.10.09`, or `2026.10.09.1` for a later one the same day.
+public struct YtDlpVersion: Comparable, Sendable, CustomStringConvertible {
+    private let parts: [Int]
+
+    /// Only a version, digit for digit: it becomes part of a download address.
+    public init?(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.wholeMatch(of: /[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]{1,6})?/) != nil else { return nil }
+        parts = trimmed.split(separator: ".").compactMap { Int($0) }
+    }
+
+    public static func < (lhs: YtDlpVersion, rhs: YtDlpVersion) -> Bool {
+        lhs.parts.lexicographicallyPrecedes(rhs.parts)
+    }
+
+    public var description: String {
+        String(format: "%04d.%02d.%02d", parts[0], parts[1], parts[2]) + parts.dropFirst(3).map { ".\($0)" }.joined()
+    }
+}
+
+/// The copies of yt-dlp Paper Plane may run (Milestone 4, decision 3): the one it ships in
+/// `Contents/Helpers/` and the one the updater keeps in Application Support, each with a
+/// `yt-dlp.version` beside it. The newer runs.
+public struct YtDlpCopies: Sendable {
+    public struct Copy: Equatable, Sendable {
+        public var executable: URL
+        /// nil when the copy doesn't say (a development build's, or one installed by Homebrew).
+        public var version: YtDlpVersion?
+    }
+
+    public var bundle: URL
+    public var updatedFolder: URL
+    /// Only a development build may run a yt-dlp it didn't ship or download.
+    public var fallsBackToInstalled: Bool
+    var environment: [String: String]
+    var fallbackFolders: [String]
+
+    public init(bundle: URL, updatedFolder: URL, fallsBackToInstalled: Bool,
+                environment: [String: String] = ProcessInfo.processInfo.environment,
+                fallbackFolders: [String] = ["/opt/homebrew/bin", "/usr/local/bin"]) {
+        self.bundle = bundle
+        self.updatedFolder = updatedFolder
+        self.fallsBackToInstalled = fallsBackToInstalled
+        self.environment = environment
+        self.fallbackFolders = fallbackFolders
+    }
+
+    /// The app at `bundle`, updates in `~/Library/Application Support/Paper Plane/bin/`.
+    public static func standard(bundle: URL, fallsBackToInstalled: Bool) -> YtDlpCopies {
+        YtDlpCopies(bundle: bundle,
+                    updatedFolder: BrowserHosts.standardApplicationSupport
+                        .appendingPathComponent("Paper Plane/bin", isDirectory: true),
+                    fallsBackToInstalled: fallsBackToInstalled)
+    }
+
+    var shipped: Copy? {
+        copy(in: bundle.appendingPathComponent("Contents/Helpers", isDirectory: true))
+    }
+
+    var updated: Copy? {
+        copy(in: updatedFolder)
+    }
+
+    /// The copy to run, or nil when there's none.
+    public func current() -> Copy? {
+        switch (shipped, updated) {
+        case let (shipped?, updated?):
+            // A copy that doesn't say its version loses; the same version runs from the app.
+            guard let newer = updated.version else { return shipped }
+            return shipped.version.map { newer > $0 } ?? true ? updated : shipped
+        case let (shipped?, nil):
+            return shipped
+        case let (nil, updated?):
+            return updated
+        case (nil, nil):
+            return fallsBackToInstalled ? installed() : nil
+        }
+    }
+
+    private func copy(in folder: URL) -> Copy? {
+        let executable = folder.appendingPathComponent("yt-dlp")
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else { return nil }
+        let version = (try? String(contentsOf: folder.appendingPathComponent("yt-dlp.version"), encoding: .utf8))
+            .flatMap(YtDlpVersion.init)
+        return Copy(executable: executable, version: version)
+    }
+
+    /// One on PATH, then in Homebrew's folders.
+    private func installed() -> Copy? {
+        let folders = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + fallbackFolders
+        for folder in folders where !folder.isEmpty {
+            let executable = URL(fileURLWithPath: folder).appendingPathComponent("yt-dlp")
+            if FileManager.default.isExecutableFile(atPath: executable.path) {
+                return Copy(executable: executable, version: nil)
+            }
+        }
+        return nil
+    }
+}

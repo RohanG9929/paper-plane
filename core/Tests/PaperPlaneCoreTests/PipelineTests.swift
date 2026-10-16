@@ -32,6 +32,8 @@ struct PipelineTests {
         Case(file: "Movie: Part 1 (Director's Cut) é.mp4", video: .h264, audio: .aac, channels: 2),
         Case(file: "h264_ac3_51.mkv", profile: OutputProfile(surround: false, hdr: true),
              video: .h264, audio: .aac, channels: 2),
+        // The default profile must convert HDR files with the tools Paper Plane actually has.
+        Case(file: "hevc_hdr10_aac.mkv", profile: .default, video: .hevc, audio: .aac, channels: 2, hdr: .pq),
     ]
 
     @Test(arguments: cases)

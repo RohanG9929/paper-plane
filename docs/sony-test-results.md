@@ -43,7 +43,7 @@ any product playback code is written.
 Filled in by Plan 1 Task 9 from the results above.
 
 - `OutputProfile.default.surround`: **false**. Rows 3, 4, 3b and 4b all fail; surround tracks become stereo AAC.
-- `OutputProfile.default.hdr`: **false**. Row 6 played but showed no HDR indicator, so HDR sources are tone-mapped to SDR (needs zimg in the bundled ffmpeg, Plan 2). The Settings override restores HDR; revisit if a later check shows this TV does display HDR over AirPlay.
+- `OutputProfile.default.hdr`: **true**. Row 6 shows HDR10 HEVC plays when copied; the missing HDR indicator is unconfirmed either way. Tone-mapping by default would make every HDR file fail (Homebrew's ffmpeg has no zimg) and cost a full 4K re-encode. "Convert HDR to SDR" stays as a Settings override. Revisit with a master playlist carrying `VIDEO-RANGE=PQ` (final review recommendation).
 - Subtitle approach for Plan 3: **WebVTT track** (row 5 works). Only picture-based subtitles get burned in.
 - Live-playlist start for Plan 2: **seek to 0 after load** (7a starts near the live edge; 7b works). Don't trust AVPlayer's seek completion `finished` flag during AirPlay: it reported false although the TV seeked.
 - Stream server binding for Plan 2: **LAN address required** (row 0: the TV fetches every segment itself).

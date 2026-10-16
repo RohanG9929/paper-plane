@@ -105,7 +105,7 @@ Each unit has one job and a narrow interface. Everything except the UI and `Play
 | Text subtitles (SRT, ASS/SSA, mov_text, WebVTT; embedded or sidecar) | Default: WebVTT subtitle track in the HLS output. Fallback: burn in (re-encodes video) |
 | Picture-based subtitles (PGS, VobSub, DVB) | Burn in (re-encodes video) |
 
-The **output profile** captures what the TV accepts: subtitle tracks yes/no, surround yes/no, HDR yes/no. v1's default profile, from the Sony test, is surround **off** and HDR **off** (docs/sony-test-results.md), with user overrides in Settings: "Always burn in subtitles", "Allow surround (AC3/E-AC3)", "Allow HDR". Receivers can't be queried for capabilities, so overrides are the escape hatch for other TVs.
+The **output profile** captures what the TV accepts: subtitle tracks yes/no, surround yes/no, HDR yes/no. v1's default profile, from the Sony test, is surround **off** and HDR **on** (docs/sony-test-results.md), with user overrides in Settings: "Always burn in subtitles", "Allow surround (AC3/E-AC3)", "Convert HDR to SDR". Receivers can't be queried for capabilities, so overrides are the escape hatch for other TVs.
 
 ### 4.2 Seeking and the converted-video window
 
@@ -224,7 +224,7 @@ The unit and integration layers run in CI on GitHub's macOS runners. No TV is ne
 
 - **App:** Swift 6, SwiftUI, AVFoundation/AVKit, Network.framework, MediaPlayer. Built with Xcode, which is not yet installed (only the Command Line Tools are) and is required from Milestone 1. Milestone 0 builds with `swiftc` from the Command Line Tools.
 - **ffmpeg:** built from source by `scripts/build-ffmpeg.sh` (arm64, static):
-  - Enabled: VideoToolbox, AudioToolbox, libass (subtitle burn-in), libdav1d (AV1 decode).
+  - Enabled: VideoToolbox, AudioToolbox, libass (subtitle burn-in), libdav1d (AV1 decode), zimg (`zscale`, HDR → SDR tone mapping for the "Convert HDR to SDR" override).
   - No x264/x265: encoding uses VideoToolbox.
   - GPL-compatible with the project license.
   - Milestone 0 uses Homebrew's ffmpeg to make test media.
@@ -249,7 +249,7 @@ paper-plane/
 
 | Risk / item | Mitigation / when decided |
 |---|---|
-| The Sony's AirPlay receiver may reject or mishandle live-growing HLS, WebVTT, surround or HDR | Milestone 0 tests each one before any product code. Output profile and overrides absorb the differences. **Resolved:** surround off (the Sony rejects AC3/E-AC3 in fMP4 and MPEG-TS); HDR off (no HDR indicator); WebVTT subtitle tracks work; growing EVENT playlists work but start at the live edge, so Paper Plane seeks to 0 after load |
+| The Sony's AirPlay receiver may reject or mishandle live-growing HLS, WebVTT, surround or HDR | Milestone 0 tests each one before any product code. Output profile and overrides absorb the differences. **Resolved:** surround off (the Sony rejects AC3/E-AC3 in fMP4 and MPEG-TS); HDR10 passes through (plays; the TV's HDR indicator is unconfirmed); WebVTT subtitle tracks work; growing EVENT playlists work but start at the live edge, so Paper Plane seeks to 0 after load |
 | macOS may not allow choosing the AirPlay TV programmatically, so the user picks it each time | Milestone 0 checks. If not possible, the remote opens with the picker ready. **Resolved:** not possible. macOS doesn't remember the TV for the app or switch to it before something is loaded, so the remote opens with the picker each time and starts paused until `isExternalPlaybackActive` |
 | Sites change their players, breaking detection | Ranking logic is isolated and fixture-tested. New fixtures can be added per bug report |
 | YouTube changes break yt-dlp | Automatic yt-dlp updates and retry |

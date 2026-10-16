@@ -13,7 +13,7 @@ public struct OutputProfile: Equatable, Sendable {
         self.hdr = hdr
     }
 
-    public static let `default` = OutputProfile(surround: false, hdr: false)
+    public static let `default` = OutputProfile(surround: false, hdr: true)
 }
 
 /// The user's track picks. nil means "use the default".

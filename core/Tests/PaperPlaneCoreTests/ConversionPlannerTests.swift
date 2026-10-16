@@ -25,8 +25,8 @@ struct ConversionPlannerTests {
     static let surroundAndHDR = OutputProfile(surround: true, hdr: true)
 
     @Test func defaultProfileMatchesTheSonyResults() {
-        // docs/sony-test-results.md rows 3, 4 (surround) and 6 (HDR).
-        #expect(OutputProfile.default == OutputProfile(surround: false, hdr: false))
+        // docs/sony-test-results.md rows 3, 4 (surround fails) and 6 (HDR10 copy plays).
+        #expect(OutputProfile.default == OutputProfile(surround: false, hdr: true))
     }
 
     // MARK: - Video

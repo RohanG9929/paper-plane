@@ -65,19 +65,21 @@ Milestone 4 is "Bundled yt-dlp, the update mechanism, the `kind: "page"` path, t
 10. **From the browser, only YouTube pages** go to yt-dlp: `https` on `youtube.com`, its subdomains or `youtu.be`, as the extension sends them (§5.1). The app refuses any other page from the bridge, as defence in depth: "Paper Plane takes only YouTube pages from the browser." *Cost if wrong:* none. The extension sends nothing else.
 11. **Play Copied Link** (the spec's "Paste a link", named for what it does; design audit, 2026-10-16):
     - **Where:** a menu item (⌘V) and a button under the drop zone. A web link dropped on the window or the menu bar icon does the same.
-    - **What it takes:** any `http` or `https` link, trimmed. A link whose path ends in `.m3u8` plays directly as HLS, and `.mp4`, `.m4v`, `.mov` or `.webm` as a file. Anything else goes through yt-dlp.
+    - **What it takes:** any `http` or `https` link, trimmed. A link whose path ends in `.m3u8` plays directly as HLS, and `.mp4`, `.m4v`, `.mov`, `.webm` or `.mkv` as a file. Anything else goes through yt-dlp. A video file copied in Finder plays as if dropped.
+    - **⌘V** in the remote is Edit ▸ Paste reaching the app, since the remote has no text field to take it.
     - **No link on the clipboard:** a notice, "Copy a link to a video first, then choose Play Copied Link." What's playing carries on.
 12. **The page's address decides about the local network.** For a page resolved by yt-dlp, the page's own address decides whether the video may come from this Mac or the local network (`ResolvedInput.page`), not the addresses yt-dlp hands back. A public page can't point ffmpeg at a device on your network; a page on your NAS still plays. *Cost if wrong:* none.
 
 ## When it fails (spec §6)
 
-13. **An extraction that fails is retried once, after an update.** This covers a missing yt-dlp and a failed extraction. It doesn't cover the time limit or a cancel. Then the messages are:
+13. **An extraction that fails is retried once, after an update that brought a newer yt-dlp.** This covers a missing yt-dlp and a failed extraction. It doesn't cover the time limit or a cancel, and the same yt-dlp isn't run twice for the same answer. Then the messages are:
     - yt-dlp's reason, the first sentence of its last `ERROR:` line: "Paper Plane couldn't get this video: Private video."
     - "Paper Plane didn't find a video at this link." for an unsupported URL, a playlist with nothing playable, or a result with no usable format.
     - "Paper Plane's YouTube helper is missing. Reinstall Paper Plane." when there's no yt-dlp at all.
     - "The site took too long to answer. Try again." at the 60-second limit.
 
     The failure log keeps yt-dlp's stderr, redacted like ffmpeg's.
+14. **What to do next follows where the video came from.** A site that stops a stream from the browser says "reload the page, then click Paper Plane again"; one from a copied link says "choose Play Copied Link again".
 
 ## Deferred, with costs
 

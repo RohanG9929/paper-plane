@@ -69,7 +69,7 @@ export function popupState(tab: TabState, plan: Plan): PopupState {
     offered = rows(plan.ranked, tab.videos);
   } else if (plan.kind === "send") {
     offered = plan.target.kind === "page"
-      ? [{ label: "This YouTube video", detail: "Sent as its page" }]
+      ? [{ label: "This YouTube video", detail: "Paper Plane gets it from YouTube" }]
       : rows([plan.target.candidate], tab.videos);
   }
   return { plan: plan.kind, rows: offered, ...(tab.error ? { error: tab.error } : {}) };

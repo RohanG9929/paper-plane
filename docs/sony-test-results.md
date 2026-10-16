@@ -150,8 +150,33 @@ These rows need the owner at the TV or in their own browser.
 | B4 | A news site with an ad before its video: wait for the article's video, then click | The article's video goes to the TV, not the ad | Needs the owner in their browser |
 | B5 | A page with two playing videos | The button shows "2"; the popup lists both, and either can be sent | Needs the owner in their browser |
 | B6 | A live stream (a news channel's live HLS) | The remote shows "Live" instead of the scrubber; the TV plays it live; the skip buttons are off | Needs the owner at the TV |
-| B7 | A YouTube video page: click the paper plane | A "!" on the button; the popup says "YouTube comes in a later version of Paper Plane." Whatever was playing carries on | Needs the owner in their browser |
+| B7 | A YouTube video page: click the paper plane | Plan 5 replaced this row: see Y1 | — |
 | B8 | Quit Paper Plane, then click the paper plane on a playing video | Paper Plane starts within a few seconds and takes the video | Needs the owner in their browser |
 | B9 | In Brave, repeat B1 | As B1 (the app installs the helper for Brave once Brave has been opened) | Needs the owner at the TV |
 | B10 | Leave a site's video for an hour or more, then send it | Either it plays, or the remote says "The site stopped the stream — reload the page, then click Paper Plane again" (its link expired) | Needs the owner at the TV |
 | B11 | Note any site whose video the button never finds, and any that fails | Worth a bug report each: Paper Plane doesn't offer DASH-only sites yet, and players that hide their `<video>` (in a shadow root) don't pause or start where they were | Needs the owner in their browser |
+
+## Plan 5: YouTube and copied links on the Sony
+
+Set up first, as for Plan 4, and run `scripts/fetch-yt-dlp.sh` before building so the app ships its own yt-dlp. A build without it fetches yt-dlp from GitHub the first time a page needs it.
+
+Checked on this Mac on 2026-10-16, without the real yt-dlp (the owner's step):
+- yt-dlp's command line, the cookie it reads on standard input (hostile values included, through Python's own `shlex`), and how its `-J` answer becomes one or two inputs, against hand-written answers.
+- The updater against an in-memory GitHub, and its downloader against a local server: wrong digests, oversized files, redirects and failed downloads.
+- `scripts/fetch-yt-dlp.sh` against a stand-in release (`scripts/check-fetch-yt-dlp.sh`).
+- Separate video and audio files from a local "site" play together. The remote's and the menu's Play Copied Link.
+
+These rows need the owner at the TV or in their own browser.
+
+| # | Check | Expected | Result |
+|---|---|---|---|
+| Y1 | In Chrome, play a YouTube video (for example Big Buck Bunny) and click the paper plane | The popup or the click sends it; the remote says "Getting your video ready…" with the video's own title; choose the Sony; it plays from where the browser was, and the browser's video pauses. If the remote says something about formats or signing in, run `brew install deno`, try again, and note which | Needs the owner at the TV |
+| Y2 | Watch Y1 for ten minutes, then seek far ahead and back | No stalls; "Moving to…", then the TV plays from there. Stalls would mean YouTube throttles one long request (chunked requests are deferred in the Milestone 4 decisions) | Needs the owner at the TV |
+| Y3 | A YouTube live stream | The remote shows "Live"; the TV plays it live | Needs the owner at the TV |
+| Y4 | A video that needs you signed in (age-restricted, or a members' video you can watch), signed in to YouTube in Chrome | It plays: the browser's cookie reached yt-dlp. In a private window, signed out, the remote names YouTube's reason instead | Needs the owner in their browser |
+| Y5 | YouTube's Share → "Start at 1:30" link, copied; choose Play Copied Link from the menu bar menu | Plays from 1:30 | Needs the owner at the TV |
+| Y6 | Copy a link to a video page on another site (for example a Vimeo video), then one straight to an .mp4 file, and press ⌘V in the remote for each | Both play; the .mp4 without yt-dlp | Needs the owner at the TV |
+| Y7 | Copy some plain text, then choose Play Copied Link while a video plays | The notice "Copy a link to a video first, then choose Play Copied Link."; the video carries on | Needs the owner at the Mac |
+| Y8 | Drag a YouTube link from Chrome's address bar onto the remote, then onto the menu bar icon | Each plays | Needs the owner at the Mac |
+| Y9 | `defaults delete dev.paperplane.app ytDlpLastUpdateCheck`, quit and open Paper Plane, wait a minute | If yt-dlp has had a release since the bundled one, `~/Library/Application Support/Paper Plane/bin/yt-dlp.version` names it | Needs the owner at the Mac |
+| Y10 | In Brave, repeat Y1 | As Y1 | Needs the owner at the TV |

@@ -53,7 +53,7 @@ describe("the popup's choices", () => {
   it("offer a YouTube video as itself", () => {
     const youtube = plan(newTab(), "https://www.youtube.com/watch?v=abc", 0);
     expect(popupState(newTab(), youtube)).toEqual({
-      plan: "send", rows: [{ label: "This YouTube video", detail: "Sent as its page" }],
+      plan: "send", rows: [{ label: "This YouTube video", detail: "Paper Plane gets it from YouTube" }],
     });
     const failed = { ...newTab(), error: "Couldn't reach Paper Plane. Try again." };
     expect(popupState(failed, { kind: "none" })).toEqual({ plan: "none", rows: [], error: "Couldn't reach Paper Plane. Try again." });

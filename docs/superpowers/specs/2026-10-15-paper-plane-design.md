@@ -89,7 +89,7 @@ Each unit has one job and a narrow interface. Everything except the UI and `Play
 2. `MediaProbe` reads the file. `PlaybackController` picks the default audio track (the file's default flag, otherwise the first) and turns subtitles off unless a track is flagged forced.
 3. If no AirPlay TV is selected, the remote window opens with the route picker highlighted.
 4. `Transcoder` starts writing HLS (fMP4 segments, ~6 s target) into a per-playback temp folder under `~/Library/Caches/Paper Plane/sessions/<id>/`.
-5. Once the first 2 segments exist, `StreamServer` publishes the folder and `AVPlayer` starts playing its URL. AirPlay hands that URL to the TV.
+5. Once the first 2 segments exist, Paper Plane writes a master playlist (`master.m3u8`) next to ffmpeg's `index.m3u8`. It carries `#EXT-X-START:TIME-OFFSET=0`, so the TV starts at the beginning rather than the live edge, and `CODECS`, `RESOLUTION`, `FRAME-RATE` and `VIDEO-RANGE`. `StreamServer` publishes the folder and `AVPlayer` opens the master playlist, held paused until a TV is chosen. AirPlay hands that URL to the TV.
 6. The remote shows play/pause, a full-length seek bar, ±10 s skip, volume, audio and subtitle pickers, and the route picker. Media keys and macOS Now Playing work via `MPRemoteCommandCenter` and `MPNowPlayingInfoCenter`.
 
 ### 4.1 Conversion rules (`ConversionPlanner`)

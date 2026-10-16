@@ -47,7 +47,10 @@ for delay in 0.3 0.6 0.9 1.2 1.6 2.0 3.0; do
   state="$(find "$SESSIONS" -name master.m3u8 2>/dev/null | grep -q . && echo ready || echo preparing)"
   quit_and_check "quit after ${delay}s (${state})"
 done
-SECOND="$PWD/testdata/media/h264_ac3_51.mkv"
+# A copy in the temporary folder: from Documents, Desktop or Downloads, looking for subtitles
+# beside it would raise the macOS privacy prompt, which an unattended run can't answer.
+SECOND="${TMPDIR%/}/paperplane-quit-check-second.mkv"
+cp "$PWD/testdata/media/h264_ac3_51.mkv" "$SECOND" 2>/dev/null
 if [[ -f "$SECOND" ]]; then
   # Opening a second video while the first is still being prepared must leave only the second.
   launch
@@ -55,10 +58,11 @@ if [[ -f "$SECOND" ]]; then
   sleep 0.4
   open -a "$APP" "$SECOND"
   sleep 4
-  folders="$(find "$SESSIONS" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
-  converting="$(pgrep -f 'ffmpeg .*paperplane-quit-check' | wc -l | tr -d ' ')"
-  echo "open twice quickly: session folders ${folders}, ffmpeg still on the first video ${converting}"
-  [[ "$folders" == 1 && "$converting" == 0 ]] || leftovers=1
+  # Sessions have a master playlist; the second video's converted subtitles have a folder too.
+  sessions="$(find "$SESSIONS" -name master.m3u8 2>/dev/null | wc -l | tr -d ' ')"
+  converting="$(pgrep -f 'ffmpeg .*paperplane-quit-check.mkv' | wc -l | tr -d ' ')"
+  echo "open twice quickly: sessions ${sessions}, ffmpeg still on the first video ${converting}"
+  [[ "$sessions" == 1 && "$converting" == 0 ]] || leftovers=1
   quit_app
 
   # Quitting straight after the second open must clean up after both.

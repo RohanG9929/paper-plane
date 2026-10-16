@@ -51,7 +51,14 @@ struct RemoteWindowContent: View {
                 stop: { controller.stop() },
                 setVolume: { controller.volume = $0 },
                 dismissWelcome: { controller.dismissWelcome() },
-                dismissNotice: { controller.dismissNotice() })
+                dismissNotice: { controller.dismissNotice() },
+                selectAudio: { controller.selectAudio($0) },
+                selectSubtitle: { controller.selectSubtitle($0) },
+                showLog: {
+                    if let log = controller.failureLog {
+                        NSWorkspace.shared.activateFileViewerSelecting([log])
+                    }
+                })
         ) {
             RoutePicker(player: controller.player)
         }

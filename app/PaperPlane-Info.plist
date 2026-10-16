@@ -30,6 +30,16 @@
 	<string>GPL-3.0</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Paper Plane streams video from this Mac to your TV over your local network.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Paper Plane looks for subtitle files (.srt) next to the videos you play.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Paper Plane looks for subtitle files (.srt) next to the videos you play.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Paper Plane looks for subtitle files (.srt) next to the videos you play.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Paper Plane looks for subtitle files (.srt) next to the videos you play.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Paper Plane looks for subtitle files (.srt) next to the videos you play.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

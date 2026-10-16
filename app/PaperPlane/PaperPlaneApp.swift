@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
         let panel = NSOpenPanel()
         panel.message = "Choose a video to play on your TV"
-        panel.prompt = "Play"
+        panel.prompt = "Open"
         panel.allowedContentTypes = VideoFiles.contentTypes
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {

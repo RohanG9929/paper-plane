@@ -48,12 +48,23 @@ public struct RemoteState: Equatable, Sendable {
         phase == .playing || phase == .paused
     }
 
+    /// Volume only reaches anything once the TV is playing.
+    public var canAdjustVolume: Bool {
+        canControlPlayback
+    }
+
+    /// How far along the track a seek can go, from 0 to 1: up to what has been converted, or
+    /// only to where playback is when that's unknown. Milestone 2 lifts this.
+    public var seekableFraction: Double {
+        max(Self.fraction(of: converted ?? elapsed, in: duration), Self.fraction(of: elapsed, in: duration))
+    }
+
     public var status: String {
         switch phase {
         case .idle: ""
         case .preparing: "Getting your video ready…"
         case .choosingTV(let tvWentAway):
-            tvWentAway ? "Your TV disconnected. Choose it again to continue" : "Choose your TV to start"
+            tvWentAway ? "TV disconnected — choose it again to continue" : "Choose your TV to start"
         case .playing: "Playing on your TV"
         case .paused: "Paused"
         case .failed(let message): message

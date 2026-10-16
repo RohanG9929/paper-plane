@@ -10,6 +10,7 @@ struct RoutePicker: NSViewRepresentable {
         let picker = AVRoutePickerView()
         picker.player = player
         picker.isRoutePickerButtonBordered = false
+        picker.setAccessibilityLabel("Choose TV")
         return picker
     }
 

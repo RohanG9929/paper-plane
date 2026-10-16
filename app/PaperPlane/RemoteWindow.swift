@@ -56,6 +56,6 @@ struct RemoteWindowContent: View {
             RoutePicker(player: controller.player)
         }
         .padding(.top, 18) // room for the window buttons in the transparent title bar
-        .background(.background)
+        .background(.background) // the padding above RemoteView's own background
     }
 }

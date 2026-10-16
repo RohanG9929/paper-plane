@@ -65,7 +65,8 @@ public struct RemoteView<RoutePicker: View>: View {
         .frame(width: Self.width)
         .background(.background)
         .overlay {
-            if isDropTarget && state.phase != .idle {
+            // The drop zone highlights itself; everywhere else the window gets a ring.
+            if isDropTarget && (state.showsWelcome || state.phase != .idle) {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(Color.accentColor, lineWidth: 3)
                     .padding(4)
@@ -182,6 +183,7 @@ struct NowPlayingCard<RoutePicker: View>: View {
                     chooseTVCallout
                 }
                 Scrubber(state: state, seek: actions.seek, skip: actions.skip)
+                    .disabled(!state.canControlPlayback)
                 transport
                 volume
             }
@@ -210,12 +212,8 @@ struct NowPlayingCard<RoutePicker: View>: View {
     }
 
     private var chooseTVCallout: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "airplayvideo")
-                .font(.title3)
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
-            Text("Paper Plane plays only on your TV, never on this Mac. Click AirPlay and pick your TV.")
+        HStack {
+            Text("Click the AirPlay button below and pick your TV. Paper Plane never plays on this Mac.")
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -272,6 +270,7 @@ struct NowPlayingCard<RoutePicker: View>: View {
                 .accessibilityHidden(true)
             Slider(value: Binding(get: { state.volume }, set: actions.setVolume), in: 0...1)
                 .controlSize(.small)
+                .disabled(!state.canAdjustVolume)
                 .accessibilityLabel("Volume")
             Image(systemName: "speaker.wave.3.fill")
                 .font(.caption)
@@ -292,8 +291,12 @@ struct NowPlayingCard<RoutePicker: View>: View {
             }
             HStack {
                 Spacer()
+                Button("Dismiss", action: actions.stop)
+                    .controlSize(.large)
+                    .keyboardShortcut(.cancelAction)
                 Button("Choose Another Video…", action: actions.openVideo)
                     .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
             }
         }
         .padding(14)
@@ -425,7 +428,8 @@ struct Scrubber: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             guard state.canControlPlayback, width > 0 else { return }
-                            dragFraction = min(max(value.location.x / width, 0), 1)
+                            // Only as far as can be played now; the thumb stops at the edge.
+                            dragFraction = min(max(value.location.x / width, 0), state.seekableFraction)
                         }
                         .onEnded { _ in
                             if let fraction = dragFraction, duration > 0 {

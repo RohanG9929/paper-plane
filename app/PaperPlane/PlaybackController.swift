@@ -90,7 +90,9 @@ final class PlaybackController {
 
     /// Plays the first video among `urls`, replacing whatever is playing.
     func play(_ urls: [URL]) {
-        showsWelcome = false
+        if showsWelcome {
+            dismissWelcome()
+        }
         guard let url = VideoFiles.videos(in: urls).first else {
             if let first = urls.first {
                 stop()
@@ -267,12 +269,12 @@ enum PlaybackError: Error {
     /// A plain-language message for the remote. Full error handling is Milestone 2.
     static func message(for error: any Error) -> String {
         switch error {
-        case PlaybackError.noFFmpeg: "ffmpeg is missing. Run scripts/build-ffmpeg.sh, or brew install ffmpeg."
-        case PlaybackError.offline: "Your Mac isn't on a network, so the TV can't reach it."
+        case PlaybackError.noFFmpeg: "Paper Plane's video converter is missing. Reinstall Paper Plane."
+        case PlaybackError.offline: "Your Mac isn't on a network, so the TV can't reach it. Connect to Wi-Fi and try again."
         case PlanError.noVideoTrack: "This file has no video."
         case is MediaProbeError: "Paper Plane couldn't read this file. It may be damaged or not a video."
-        case is TranscodeError: "Converting the video failed."
-        default: "Something went wrong: \(error.localizedDescription)"
+        case is TranscodeError: "Paper Plane couldn't convert this video. Try another file."
+        default: "Something went wrong (\(error.localizedDescription)). Try again."
         }
     }
 }

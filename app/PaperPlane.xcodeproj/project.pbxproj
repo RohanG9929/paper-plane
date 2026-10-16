@@ -9,17 +9,49 @@
 /* Begin PBXBuildFile section */
 		5050504C0000000000000101 /* PaperPlaneCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5050504C0000000000000102 /* PaperPlaneCore */; };
 		5050504C0000000000000104 /* PaperPlaneUI in Frameworks */ = {isa = PBXBuildFile; productRef = 5050504C0000000000000105 /* PaperPlaneUI */; };
+		5050504C0000000000000205 /* PaperPlaneCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5050504C0000000000000206 /* PaperPlaneCore */; };
+		5050504C000000000000020D /* paperplane-host in Embed Helper */ = {isa = PBXBuildFile; fileRef = 5050504C0000000000000200 /* paperplane-host */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5050504C000000000000020A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5050504C0000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5050504C0000000000000202;
+			remoteInfo = "paperplane-host";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5050504C000000000000020C /* Embed Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				5050504C000000000000020D /* paperplane-host in Embed Helper */,
+			);
+			name = "Embed Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		5050504C0000000000000002 /* Paper Plane.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Paper Plane.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5050504C0000000000000004 /* PaperPlane-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "PaperPlane-Info.plist"; sourceTree = "<group>"; };
+		5050504C0000000000000200 /* paperplane-host */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "paperplane-host"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5050504C0000000000000003 /* PaperPlane */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = PaperPlane;
+			sourceTree = "<group>";
+		};
+		5050504C0000000000000201 /* PaperPlaneHost */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PaperPlaneHost;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -34,6 +66,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5050504C0000000000000204 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5050504C0000000000000205 /* PaperPlaneCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -41,6 +81,7 @@
 			isa = PBXGroup;
 			children = (
 				5050504C0000000000000003 /* PaperPlane */,
+				5050504C0000000000000201 /* PaperPlaneHost */,
 				5050504C0000000000000004 /* PaperPlane-Info.plist */,
 				5050504C0000000000000005 /* Products */,
 			);
@@ -50,6 +91,7 @@
 			isa = PBXGroup;
 			children = (
 				5050504C0000000000000002 /* Paper Plane.app */,
+				5050504C0000000000000200 /* paperplane-host */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -64,11 +106,13 @@
 				5050504C0000000000000011 /* Sources */,
 				5050504C0000000000000012 /* Frameworks */,
 				5050504C0000000000000013 /* Resources */,
+				5050504C000000000000020C /* Embed Helper */,
 				5050504C0000000000000014 /* Embed ffmpeg */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				5050504C000000000000020B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				5050504C0000000000000003 /* PaperPlane */,
@@ -81,6 +125,28 @@
 			productName = PaperPlane;
 			productReference = 5050504C0000000000000002 /* Paper Plane.app */;
 			productType = "com.apple.product-type.application";
+		};
+		5050504C0000000000000202 /* paperplane-host */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5050504C0000000000000207 /* Build configuration list for PBXNativeTarget "paperplane-host" */;
+			buildPhases = (
+				5050504C0000000000000203 /* Sources */,
+				5050504C0000000000000204 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5050504C0000000000000201 /* PaperPlaneHost */,
+			);
+			name = "paperplane-host";
+			packageProductDependencies = (
+				5050504C0000000000000206 /* PaperPlaneCore */,
+			);
+			productName = "paperplane-host";
+			productReference = 5050504C0000000000000200 /* paperplane-host */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -110,6 +176,7 @@
 			projectRoot = "";
 			targets = (
 				5050504C0000000000000010 /* PaperPlane */,
+				5050504C0000000000000202 /* paperplane-host */,
 			);
 		};
 /* End PBXProject section */
@@ -154,7 +221,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5050504C0000000000000203 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5050504C000000000000020B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5050504C0000000000000202 /* paperplane-host */;
+			targetProxy = 5050504C000000000000020A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		5050504C0000000000000021 /* Debug */ = {
@@ -229,6 +311,26 @@
 			};
 			name = Release;
 		};
+		5050504C0000000000000208 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				PRODUCT_NAME = "paperplane-host";
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		5050504C0000000000000209 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				PRODUCT_NAME = "paperplane-host";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -250,6 +352,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		5050504C0000000000000207 /* Build configuration list for PBXNativeTarget "paperplane-host" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5050504C0000000000000208 /* Debug */,
+				5050504C0000000000000209 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -267,6 +378,10 @@
 		5050504C0000000000000105 /* PaperPlaneUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PaperPlaneUI;
+		};
+		5050504C0000000000000206 /* PaperPlaneCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PaperPlaneCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

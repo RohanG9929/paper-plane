@@ -1,5 +1,6 @@
 import AppKit
 import Network
+import os
 import PaperPlaneCore
 import PaperPlaneUI
 import UniformTypeIdentifiers
@@ -19,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum Key {
         static let welcomeShown = "didShowWelcome"
         static let tvChosen = "didChooseTV"
+        /// Automated checks launch with `-PaperPlaneInstallsBrowserHosts NO`, leaving the
+        /// browsers' folders alone.
+        static let installsBrowserHosts = "PaperPlaneInstallsBrowserHosts"
     }
 
     #if DEBUG
@@ -43,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItem?
     private var nowPlaying: NowPlaying?
     private let network = NWPathMonitor()
+    private var bridge: BridgeServer?
+    private let log = Logger(subsystem: "dev.paperplane.app", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Whatever a crash left behind (spec §4.2).
@@ -59,7 +65,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.controller.networkChanged() }
         }
         network.start(queue: .main)
+        installBrowserHosts()
+        startBridge()
         remote.show()
+    }
+
+    // MARK: - The browser
+
+    /// Lets Chrome and Brave start the helper (spec §5.2), on every launch in case the app moved.
+    private func installBrowserHosts() {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: Key.installsBrowserHosts) == nil || defaults.bool(forKey: Key.installsBrowserHosts)
+        else { return }
+        let host = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/paperplane-host")
+        guard FileManager.default.isExecutableFile(atPath: host.path) else { return }
+        do {
+            try BrowserHosts.install(host: host, applicationSupport: BrowserHosts.standardApplicationSupport)
+        } catch {
+            log.error("Couldn't install the browser helper: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Listens for videos sent from the extension through the helper.
+    private func startBridge() {
+        Task { [weak self] in
+            do {
+                let bridge = try await BridgeServer.start(at: BridgeServer.standardSocket) { [weak self] request in
+                    await self?.play(request) ?? .failed("Paper Plane is quitting.")
+                }
+                self?.bridge = bridge
+            } catch {
+                self?.log.error("Couldn't listen for the browser: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// A video from the browser: the remote comes forward to choose the TV, as for a file.
+    private func play(_ request: PlayRequest) async -> PlayReply {
+        if request.input != nil {
+            remote.show()
+        }
+        return await controller.play(request)
     }
 
     /// Finder's Open With, and files dropped on the app's icon.
@@ -68,8 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // ffmpeg must not outlive the app.
+        // ffmpeg must not outlive the app, and the helper must find no socket.
         network.cancel()
+        bridge?.stop()
         Task {
             await controller.shutDown()
             sender.reply(toApplicationShouldTerminate: true)

@@ -1,4 +1,5 @@
 import AppKit
+import os
 import PaperPlaneCore
 import PaperPlaneUI
 import SwiftUI
@@ -56,12 +57,40 @@ final class MenuBarPanel: NSObject, NSPopoverDelegate {
     }
 
     func popoverDidShow(_ notification: Notification) {
+        log.info("Panel open: app active \(NSApp.isActive, privacy: .public), panel key \(self.window?.isKeyWindow ?? false, privacy: .public)")
+        watchForEsc()
         visibilityChanged?(true)
     }
 
     func popoverDidClose(_ notification: Notification) {
+        if let escMonitor {
+            NSEvent.removeMonitor(escMonitor)
+            self.escMonitor = nil
+        }
         fallbackAnchor?.orderOut(nil)
         visibilityChanged?(false)
+    }
+
+    // MARK: - Esc
+
+    private let log = Logger(subsystem: "dev.paperplane.app", category: "panel")
+    private var escMonitor: Any?
+
+    /// Esc closes the panel. Watched for here rather than in the remote's responder chain: in a
+    /// popover the first responder is usually the popover's own window, so Esc never reaches the
+    /// content. Only while the panel has the keyboard, so Esc in Settings is left alone.
+    private func watchForEsc() {
+        guard escMonitor == nil else { return }
+        escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let closes = event.keyCode == 53 // Esc
+                && MainActor.assumeIsolated { () -> Bool in
+                    guard let self, let window = self.window, event.window === window else { return false }
+                    self.log.info("Esc: closing the panel")
+                    self.close()
+                    return true
+                }
+            return closes ? nil : event
+        }
     }
 
     // MARK: - Where the panel hangs

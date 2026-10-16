@@ -83,12 +83,7 @@ public struct Transcoder: Sendable {
         var timeBase: Double?
         for line in framecrc.split(whereSeparator: \.isNewline) {
             if line.hasPrefix("#tb 0:") {
-                let parts = line.dropFirst("#tb 0:".count).split(separator: "/")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                if parts.count == 2, let numerator = Double(parts[0]), let denominator = Double(parts[1]),
-                   denominator != 0 {
-                    timeBase = numerator / denominator
-                }
+                timeBase = Fraction.value(line.dropFirst("#tb 0:".count)) ?? timeBase
             } else if !line.hasPrefix("#") {
                 let fields = line.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
                 guard let timeBase, fields.count >= 3, let pts = Double(fields[2]) else { return nil }

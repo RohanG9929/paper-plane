@@ -78,7 +78,10 @@ public final class StreamServer: Sendable {
             }
             if let end = buffer.range(of: Data("\r\n\r\n".utf8)) {
                 let head = String(decoding: buffer[..<end.lowerBound], as: UTF8.self)
-                connection.send(content: responder.response(to: head), contentContext: .finalMessage, isComplete: true,
+                let response = responder.response(to: head)
+                connection.send(content: response.head, contentContext: .finalMessage, isComplete: false,
+                                completion: .idempotent)
+                connection.send(content: response.body, contentContext: .finalMessage, isComplete: true,
                                 completion: .contentProcessed { _ in connection.cancel() })
             } else if error != nil || isComplete || buffer.count > 16 * 1024 {
                 connection.cancel()

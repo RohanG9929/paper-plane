@@ -96,8 +96,7 @@ public struct RemoteState: Equatable, Sendable {
 public enum TimeText {
     /// "0:07", "12:34", "1:02:03".
     public static func clock(_ seconds: Double) -> String {
-        let total = seconds.isFinite ? max(Int(seconds.rounded(.down)), 0) : 0
-        let (hours, minutes, secs) = (total / 3600, total / 60 % 60, total % 60)
+        let (hours, minutes, secs) = parts(seconds)
         return hours > 0
             ? String(format: "%d:%02d:%02d", hours, minutes, secs)
             : String(format: "%d:%02d", minutes, secs)
@@ -110,11 +109,17 @@ public enum TimeText {
 
     /// "1 hour 2 minutes 3 seconds", for VoiceOver.
     public static func spoken(_ seconds: Double) -> String {
-        let total = seconds.isFinite ? max(Int(seconds.rounded(.down)), 0) : 0
-        let parts = [(total / 3600, "hour"), (total / 60 % 60, "minute"), (total % 60, "second")]
+        let (hours, minutes, secs) = parts(seconds)
+        let words = [(hours, "hour"), (minutes, "minute"), (secs, "second")]
             .filter { $0.0 > 0 }
             .map { "\($0.0) \($0.1)\($0.0 == 1 ? "" : "s")" }
-        return parts.isEmpty ? "0 seconds" : parts.joined(separator: " ")
+        return words.isEmpty ? "0 seconds" : words.joined(separator: " ")
+    }
+
+    /// Whole hours, minutes and seconds; 0 for negative or non-finite times.
+    private static func parts(_ seconds: Double) -> (hours: Int, minutes: Int, seconds: Int) {
+        let total = seconds.isFinite ? max(Int(seconds.rounded(.down)), 0) : 0
+        return (total / 3600, total / 60 % 60, total % 60)
     }
 }
 

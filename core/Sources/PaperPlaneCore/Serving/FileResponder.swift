@@ -15,8 +15,15 @@ struct FileResponder: Sendable {
         "vtt": "text/vtt",
     ]
 
+    /// The status line and headers, then the body: kept apart so a segment, read straight from
+    /// its memory-mapped file, is never copied to sit behind the headers.
+    struct Response {
+        var head: Data
+        var body = Data()
+    }
+
     /// `head` is the request line and headers, without the blank line that ends them.
-    func response(to head: String) -> Data {
+    func response(to head: String) -> Response {
         let lines = head.components(separatedBy: "\r\n")
         let requestLine = lines[0].split(separator: " ", omittingEmptySubsequences: false)
         guard requestLine.count == 3, requestLine[2].hasPrefix("HTTP/1.") else {
@@ -45,12 +52,12 @@ struct FileResponder: Sendable {
         case .partial(let range):
             status = "206 Partial Content"
             headers.append("Content-Range: bytes \(range.lowerBound)-\(range.upperBound - 1)/\(data.count)")
-            body = data.subdata(in: range)
+            body = data[range]
         case .unsatisfiable:
             return Self.message(416, "Range Not Satisfiable", extraHeaders: ["Content-Range: bytes */\(data.count)"])
         }
         headers.append("Content-Length: \(body.count)")
-        return Self.head(status, headers) + (method == "HEAD" ? Data() : body)
+        return Response(head: Self.head(status, headers), body: method == "HEAD" ? Data() : body)
     }
 
     // MARK: - Ranges
@@ -104,9 +111,9 @@ struct FileResponder: Sendable {
         Data((["HTTP/1.1 \(status)"] + headers + ["Connection: close", "", ""]).joined(separator: "\r\n").utf8)
     }
 
-    private static func message(_ code: Int, _ reason: String, extraHeaders: [String] = []) -> Data {
+    private static func message(_ code: Int, _ reason: String, extraHeaders: [String] = []) -> Response {
         let body = Data("\(reason)\n".utf8)
         let headers = ["Content-Type: text/plain; charset=utf-8", "Content-Length: \(body.count)"] + extraHeaders
-        return head("\(code) \(reason)", headers) + body
+        return Response(head: head("\(code) \(reason)", headers), body: body)
     }
 }

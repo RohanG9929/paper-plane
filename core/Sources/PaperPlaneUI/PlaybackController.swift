@@ -159,7 +159,7 @@ public final class PlaybackController {
         }
         dismissNotice()
         stop()
-        title = url.deletingPathExtension().lastPathComponent
+        title = ResolvedInput.file(url).title
         phase = .preparing
         starting = Task { await start(url) }
     }

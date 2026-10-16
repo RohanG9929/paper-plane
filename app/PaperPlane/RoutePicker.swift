@@ -17,6 +17,8 @@ struct RoutePicker: NSViewRepresentable {
     }
 
     func updateNSView(_ picker: AVRoutePickerView, context: Context) {
-        picker.player = player
+        if picker.player !== player {
+            picker.player = player
+        }
     }
 }

@@ -106,11 +106,8 @@ enum FFprobeParser {
 
     /// ffprobe writes rates as fractions: `24000/1001`, or `0/0` when it doesn't know.
     private static func frameRate(_ fraction: String?) -> Double? {
-        guard let parts = fraction?.split(separator: "/"), parts.count == 2,
-              let numerator = Double(parts[0]), let denominator = Double(parts[1]),
-              numerator > 0, denominator > 0
-        else { return nil }
-        return numerator / denominator
+        guard let rate = fraction.flatMap(Fraction.value), rate > 0 else { return nil }
+        return rate
     }
 
     private static func language(_ code: String?) -> String? {

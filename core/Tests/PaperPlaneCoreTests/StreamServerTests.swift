@@ -11,7 +11,8 @@ struct FileResponderTests {
         for (name, text) in files {
             try Data(text.utf8).write(to: folder.appendingPathComponent(name))
         }
-        let data = FileResponder(folder: folder, token: Self.token).response(to: head)
+        let response = FileResponder(folder: folder, token: Self.token).response(to: head)
+        let data = response.head + response.body
         return String(decoding: data, as: UTF8.self)
     }
 

@@ -17,6 +17,11 @@ let streams: [(name: String, path: String)] = [
     ("5 WebVTT subtitles", "webvtt/master.m3u8"),
     ("6 HDR10 HEVC (4K)", "hdr10/index.m3u8"),
     ("7 Live (growing EVENT playlist)", "live/index.m3u8"),
+    // Plan 2 re-test: master playlists from make-retest-playlists.sh.
+    ("R1 AC3 5.1 + master playlist with CODECS", "ac3/master.m3u8"),
+    ("R2 E-AC3 5.1 + master playlist with CODECS", "eac3/master.m3u8"),
+    ("R3 HDR10 + VIDEO-RANGE=PQ", "hdr10/master.m3u8"),
+    ("R4 Live + EXT-X-START:TIME-OFFSET=0", "livestart/master.m3u8"),
 ]
 
 @MainActor

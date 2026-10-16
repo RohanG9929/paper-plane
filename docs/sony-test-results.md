@@ -48,3 +48,24 @@ Filled in by Plan 1 Task 9 from the results above.
 - Live-playlist start for Plan 2: **seek to 0 after load** (7a starts near the live edge; 7b works). Don't trust AVPlayer's seek completion `finished` flag during AirPlay: it reported false although the TV seeked.
 - Stream server binding for Plan 2: **LAN address required** (row 0: the TV fetches every segment itself).
 - TV selection UX for Plan 2: **start paused, then check `isExternalPlaybackActive`** (row 8), and **the remote opens with the picker each time** (row 9). With no TV active, AVPlayer plays on the Mac, so Paper Plane must not start playback until a TV is active. The first pairing shows a PIN on the TV.
+
+## Plan 2 re-test: master playlists
+
+Optional, about 5 minutes. Run `spikes/sony-test/make-retest-playlists.sh` once, then follow "How to run" above and load the R streams. Start `start-live.sh` about 2 minutes before R4.
+
+All four streams already play on the Mac's own AVPlayer (checked 2026-10-15). Only the TV's behaviour is unknown.
+
+| # | Stream / check | What to look for | Result |
+|---|---|---|---|
+| R1 | H.264 + AC3 5.1 behind a master playlist with `CODECS="avc1.640028,ac-3"` | Plays with sound? Or drops to the AirPlay home screen like row 3? | Needs the owner at the TV |
+| R2 | H.264 + E-AC3 5.1 behind a master playlist with `CODECS="avc1.640028,ec-3"` | Same as R1 | Needs the owner at the TV |
+| R3 | HDR10 HEVC (4K) behind a master playlist with `VIDEO-RANGE=PQ` and `FRAME-RATE` | Plays? Does the TV show its HDR indicator now? | Needs the owner at the TV |
+| R4 | Live, master playlist with `#EXT-X-START:TIME-OFFSET=0` | Load about 2 min after starting `start-live.sh`. Does Terminal A show the TV fetching segment 0 first (start at 0 s), or a late segment (live edge)? | Needs the owner at the TV |
+
+### Re-test decisions
+
+Filled in by Plan 2 Task 9 from the results above.
+
+- Surround: not run; defaults kept (off). If R1 and R2 both play with sound, apply Plan 2 Task 9 Step 6's surround changes.
+- HDR: not run; defaults kept (HDR plans open the master playlist). If R3 doesn't play, apply Plan 2 Task 10 Step 3's HDR fallback.
+- Live start: not run; defaults kept (the app seeks to 0 after the TV takes over). If R4 starts at 0 s, `PlaybackController.seeksToStartOnTV` can become `false`.

@@ -26,6 +26,7 @@ public final class NowPlaying {
         var isPlaying: Bool
         var hasArtwork: Bool
         var at: Date
+        var isLive = false
 
         func differs(from next: Published) -> Bool {
             let expected = elapsed + (isPlaying ? next.at.timeIntervalSince(at) : 0)
@@ -114,7 +115,7 @@ public final class NowPlaying {
         }
         let next = Published(title: title, duration: controller.duration, elapsed: controller.movieTime,
                              isPlaying: controller.phase == .onTV && !controller.isPaused,
-                             hasArtwork: controller.artwork != nil, at: .now)
+                             hasArtwork: controller.artwork != nil, at: .now, isLive: controller.isLive)
         guard published.map({ $0.differs(from: next) }) ?? true else { return }
         published = next
         center.nowPlayingInfo = Self.info(next, artwork: controller.artwork)
@@ -130,6 +131,9 @@ public final class NowPlaying {
         ]
         if let duration = state.duration {
             info[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+        if state.isLive {
+            info[MPNowPlayingInfoPropertyIsLiveStream] = true
         }
         if let artwork {
             info[MPMediaItemPropertyArtwork] = Self.artwork(artwork)

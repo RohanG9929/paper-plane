@@ -12,6 +12,14 @@ struct NowPlayingTests {
                              at: Date(timeIntervalSince1970: seconds))
     }
 
+    @Test func aLiveStreamIsLiveInControlCenter() {
+        var live = Self.state()
+        live.duration = nil
+        live.isLive = true
+        #expect(NowPlaying.info(live, artwork: nil)[MPNowPlayingInfoPropertyIsLiveStream] as? Bool == true)
+        #expect(NowPlaying.info(Self.state(), artwork: nil)[MPNowPlayingInfoPropertyIsLiveStream] == nil)
+    }
+
     @Test func describesTheVideoForControlCenter() {
         let info = NowPlaying.info(Self.state(), artwork: NSImage(size: NSSize(width: 64, height: 36)))
         #expect(info[MPMediaItemPropertyTitle] as? String == "Movie")

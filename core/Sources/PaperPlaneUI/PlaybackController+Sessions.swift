@@ -23,7 +23,7 @@ extension PlaybackController {
             audioChoices: audioChoices, audio: audio?.id, subtitleChoices: subtitleChoices, subtitle: subtitle,
             loading: loading, canShowLog: failureLog != nil, showsTVHelp: showsTVHelp,
             // From the oldest segment still on disk, as seeking measures it.
-            convertedFrom: stream.map { $0.session.offset + (segments.first?.start ?? 0) })
+            convertedFrom: stream.map { $0.session.offset + (segments.first?.start ?? 0) }, isLive: isLive)
     }
 
     // MARK: - Seeking
@@ -38,7 +38,7 @@ extension PlaybackController {
     /// AirPlay reports it finished (docs/sony-test-results.md, row 7b), so there is nothing to
     /// wait for.
     public func seek(toMovieTime time: Double) {
-        guard phase == .onTV, stream != nil else { return }
+        guard phase == .onTV, stream != nil, !isLive else { return }
         // Not past the last second: the end of a file is where conversion would find nothing.
         let target = max(0, duration.map { min(time, max($0 - 1, 0)) } ?? time)
         if let sessionTime = sessionTime(forMovieTime: target) {
@@ -203,12 +203,14 @@ extension PlaybackController {
 
     /// Keeps converting ahead of the player, rests ffmpeg when it's far enough ahead, and deletes
     /// what the player has left behind (spec §4.2). With little disk space, keeps less ahead and
-    /// says so once.
+    /// says so once. A web stream's conversion is never rested (addendum M3-16).
     func manageWindow() {
         // During a seek the old session still plays on the TV: its segments aren't behind.
         guard let stream, seekTarget == nil else { return }
         let free = freeSpace()
-        let window = SegmentWindow.forFreeSpace(free)
+        let standard = SegmentWindow.forFreeSpace(free)
+        var window = standard
+        window.pausesConversion = !isWeb
         let actions = window.actions(playhead: movieTime - stream.session.offset, segments: segments,
                                      conversionPaused: conversionPaused, conversionFinished: conversionFinished)
         for action in actions {
@@ -224,9 +226,10 @@ extension PlaybackController {
                 segments.removeFirst(old.count)
             }
         }
-        if window != SegmentWindow(), !warnedAboutSpace { // keeping less ahead than usual
+        if standard != SegmentWindow(), !warnedAboutSpace { // low enough to keep less ahead
             warnedAboutSpace = true
-            show(notice: "Your Mac is low on disk space, so Paper Plane converts only a few minutes ahead.")
+            show(notice: isWeb ? "Your Mac is low on disk space, so a long video may stop part-way through."
+                : "Your Mac is low on disk space, so Paper Plane converts only a few minutes ahead.")
         }
     }
 

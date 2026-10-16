@@ -118,6 +118,10 @@ public final class PlaybackController {
     }
     public internal(set) var movieTime = 0.0
     public private(set) var duration: Double?
+    /// A web stream with no end (spec §5.3): nothing to seek in.
+    public private(set) var isLive = false
+    /// From the browser rather than a file: its conversion is never rested (addendum M3-16).
+    @ObservationIgnored var isWeb = false
     /// How far the conversion has got, in movie time.
     public internal(set) var convertedEnd: Double?
     public private(set) var artwork: NSImage?
@@ -157,7 +161,7 @@ public final class PlaybackController {
     /// The text subtitles as WebVTT, once converted.
     @ObservationIgnored var subtitleFiles: SubtitleFiles?
     @ObservationIgnored var extracting: Task<SubtitleFiles?, Never>?
-    @ObservationIgnored private var starting: Task<Void, Never>?
+    @ObservationIgnored private var starting: Task<PlayReply, Never>?
     /// A new session for a seek or a track change. Work for a playback or session that has
     /// been replaced finds its task cancelled.
     @ObservationIgnored var restarting: Task<Void, Never>?
@@ -239,11 +243,33 @@ public final class PlaybackController {
             }
             return
         }
+        begin(.file(url), at: 0)
+    }
+
+    /// Plays a video sent from the browser (spec §5.3), `startAt` seconds in, and answers once
+    /// it's ready for the TV or with why it can't play, so the browser pauses only when Paper
+    /// Plane has it. A page (YouTube) needs yt-dlp, which comes later: it leaves what's playing
+    /// alone.
+    public func play(_ request: PlayRequest) async -> PlayReply {
+        guard let input = request.input else {
+            return .failed("YouTube comes in a later version of Paper Plane.")
+        }
+        return await begin(input, at: request.startAt).value
+    }
+
+    /// Replaces whatever is playing with `input`.
+    @discardableResult
+    private func begin(_ input: ResolvedInput, at startAt: Double) -> Task<PlayReply, Never> {
+        if showsWelcome {
+            dismissWelcome()
+        }
         dismissNotice()
         stop()
-        title = ResolvedInput.file(url).title
+        title = input.title
         phase = .preparing
-        starting = Task { await start(url) }
+        let task = Task { await start(input, at: startAt) }
+        starting = task
+        return task
     }
 
     public func togglePause() {
@@ -268,7 +294,7 @@ public final class PlaybackController {
             afterwards {
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask { await stream?.stop() }
-                    group.addTask { await starting?.value }
+                    group.addTask { _ = await starting?.value }
                     group.addTask { await restarting?.value }
                     group.addTask { await extracting?.value?.remove() }
                 }
@@ -291,6 +317,8 @@ public final class PlaybackController {
         phase = .idle
         movieTime = 0
         duration = nil
+        isLive = false
+        isWeb = false
         convertedEnd = nil
         tvWentAway = false
         userPaused = false
@@ -349,13 +377,17 @@ public final class PlaybackController {
 
     // MARK: - Starting
 
-    private func start(_ url: URL) async {
+    /// Probes `input` and starts its first session `startAt` seconds in (at the live edge for a
+    /// live stream). Returns the browser's answer: ok once the video waits for the TV.
+    private func start(_ input: ResolvedInput, at startAt: Double) async -> PlayReply {
         do {
             let pipeline = try self.pipeline()
-            let media = try await environment.probe(pipeline, .file(url))
+            let media = try await environment.probe(pipeline, input)
             try Task.checkCancellation()
             self.media = media
             duration = media.info.duration
+            isWeb = input.inputs.contains { !$0.url.isFileURL }
+            isLive = isWeb && media.info.duration == nil
             detail = Self.detail(for: media.info)
             audioTracks = media.info.audio
             subtitleOptions = media.subtitles
@@ -367,25 +399,37 @@ public final class PlaybackController {
             startExtractingSubtitles(media, with: pipeline)
             // Subtitles are off unless the file marks a track as forced (spec §4, step 2).
             subtitle = media.subtitles.first(where: \.isForced)?.id
-            let stream = try await environment.startStream(pipeline, media, try await request(at: 0))
+            // Not past the last second, where conversion would find nothing.
+            let start = isLive ? 0 : max(0, duration.map { min(startAt, max($0 - 1, 0)) } ?? startAt)
+            let stream = try await environment.startStream(pipeline, media, try await request(at: start))
             guard !Task.isCancelled else {
                 await stream.stop()
-                return
+                return replaced
             }
             adopt(stream)
             phase = .waitingForTV
             externalPlaybackChanged()
             networkChanged() // in case the address changed while this started
-            if let jpeg = await environment.thumbnail(pipeline.tools, url, duration), self.stream === stream {
+            // A web stream's artwork would mean fetching more from the site than playing needs.
+            if !isWeb, let url = input.inputs.first?.url,
+               let jpeg = await environment.thumbnail(pipeline.tools, url, duration), self.stream === stream {
                 artwork = NSImage(data: jpeg)
             }
+            return .ok
         } catch {
             // stop() or a newer play() took over: whatever this start ran into, it is no longer
             // this controller's business, and acting on it would stop the newer video.
-            guard !Task.isCancelled, !(error is CancellationError) else { return }
-            log.error("Couldn't play \(url.lastPathComponent, privacy: .private): \(String(describing: error), privacy: .private)")
-            fail(PlaybackError.message(for: error), error: error)
+            guard !Task.isCancelled, !(error is CancellationError) else { return replaced }
+            log.error("Couldn't play \(input.title, privacy: .private): \(String(describing: error), privacy: .private)")
+            let message = PlaybackError.message(for: error)
+            fail(message, error: error)
+            return .failed(message)
         }
+    }
+
+    /// The answer for a start that stop() or a newer video cancelled.
+    private var replaced: PlayReply {
+        .failed(phase == .idle ? "Stopped in Paper Plane." : "Another video took its place.")
     }
 
     /// A pipeline with the current tools, address and settings.
@@ -455,7 +499,8 @@ public final class PlaybackController {
                 convertedEnd = duration ?? convertedEnd
             case .failed(let message):
                 log.error("ffmpeg failed: \(message, privacy: .private)")
-                fail("Converting the video stopped part-way through.", error: ConversionStopped(message: message))
+                let stopped = ConversionStopped(message: message)
+                fail(PlaybackError.message(for: stopped), error: stopped)
             }
         }
     }
@@ -559,6 +604,8 @@ enum PlaybackError: Error {
     /// A plain-language message for the remote.
     static func message(for error: any Error) -> String {
         switch error {
+        case _ where isSiteRefusal(error): "The site stopped the stream — click Paper Plane in your browser again."
+        case is ConversionStopped: "Converting the video stopped part-way through."
         case PlaybackError.noFFmpeg: "Paper Plane's video converter is missing. Reinstall Paper Plane."
         case PlaybackError.offline: "Your Mac isn't on a network, so the TV can't reach it. Connect to your network and try again."
         case PlanError.noVideoTrack: "This file has no video."
@@ -566,5 +613,13 @@ enum PlaybackError: Error {
         case is TranscodeError: "Paper Plane couldn't convert this video. Try another file."
         default: "Something went wrong. Try again, or choose another video." // the details are in Show Log
         }
+    }
+
+    /// A site refusing a web stream (spec §6), before it started or part-way through.
+    static func isSiteRefusal(_ error: any Error) -> Bool {
+        if let stopped = error as? ConversionStopped {
+            return SiteRefusal.isRefusal(stderr: stopped.message)
+        }
+        return SiteRefusal.isRefusal(error)
     }
 }

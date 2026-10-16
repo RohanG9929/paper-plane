@@ -1,0 +1,55 @@
+# Unit and integration tests, the bundled ffmpeg and the app build, on GitHub's Apple Silicon
+# runners (spec §7). No TV needed.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show the toolchain
+        run: xcodebuild -version && swift --version
+
+      - name: Restore the bundled ffmpeg
+        id: ffmpeg-cache
+        uses: actions/cache@v6
+        with:
+          path: vendor/ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+
+      - name: Build the bundled ffmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install meson ninja autoconf automake libtool pkgconf
+          scripts/build-ffmpeg.sh
+
+      - name: Check the bundled ffmpeg
+        run: scripts/check-ffmpeg.sh
+
+      - name: Make test media (with Homebrew's ffmpeg, which has the encoders it needs)
+        run: |
+          brew install ffmpeg
+          scripts/make-test-media.sh
+          python3 -I scripts/check-test-media.py
+
+      - name: Core and UI tests with Homebrew's ffmpeg
+        run: scripts/test-core.sh
+
+      - name: Core and UI tests with the bundled ffmpeg
+        run: |
+          export PAPERPLANE_FFMPEG="$PWD/vendor/ffmpeg/bin/ffmpeg"
+          export PAPERPLANE_FFPROBE="$PWD/vendor/ffmpeg/bin/ffprobe"
+          scripts/test-core.sh
+
+      - name: Build the app (warnings are errors)
+        run: >
+          xcodebuild -project app/PaperPlane.xcodeproj -scheme PaperPlane -configuration Release
+          -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+          GCC_TREAT_WARNINGS_AS_ERRORS=YES build

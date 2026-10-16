@@ -1,0 +1,43 @@
+#!/bin/bash
+# Checks that quitting Paper Plane never leaves ffmpeg running or a session folder behind, at
+# any moment: while a video is still being prepared and once it's ready. It launches the app,
+# opens a long clip that needs converting, quits after a delay, and looks for leftovers.
+# The app shows its window on screen while this runs (about a minute).
+# Usage: scripts/check-quit-cleanup.sh [path to Paper Plane.app]
+set -uo pipefail
+cd "$(dirname "$0")/.."
+APP="${1:-$PWD/build/DerivedData/Build/Products/Debug/Paper Plane.app}"
+SESSIONS="$HOME/Library/Caches/Paper Plane/sessions"
+CLIP="${TMPDIR%/}/paperplane-quit-check.mkv"
+[[ -d "$APP" ]] || { echo "No app at $APP. Build it first (see README)." >&2; exit 2; }
+if [[ ! -f "$CLIP" ]]; then
+  echo "Making a 10-minute MPEG-2 clip (needs re-encoding, so ffmpeg runs for a while)…"
+  ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=600" \
+    -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=600" -c:v mpeg2video -q:v 8 -c:a mp2 "$CLIP" || exit 2
+fi
+
+leftovers=0
+for delay in 0.3 0.6 0.9 1.2 1.6 2.0 3.0; do
+  open "$APP"
+  until pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
+  sleep 1
+  open -a "$APP" "$CLIP"
+  sleep "$delay"
+  state="$(find "$SESSIONS" -name master.m3u8 2>/dev/null | grep -q . && echo ready || echo preparing)"
+  osascript -e 'tell application id "dev.paperplane.app" to quit' >/dev/null
+  while pgrep -f "Paper Plane.app/Contents/MacOS" >/dev/null; do sleep 0.1; done
+  sleep 0.5
+  ffmpeg_left="$(pgrep -f 'Helpers/ffmpeg|ffmpeg .*paperplane-quit-check' | wc -l | tr -d ' ')"
+  folders_left="$(find "$SESSIONS" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
+  echo "quit after ${delay}s (${state}): ffmpeg left ${ffmpeg_left}, folders left ${folders_left}"
+  if [[ "$ffmpeg_left" != 0 || "$folders_left" != 0 ]]; then
+    leftovers=1
+    pkill -f 'Helpers/ffmpeg|ffmpeg .*paperplane-quit-check'
+    rm -rf "$SESSIONS"
+  fi
+done
+if ((leftovers)); then
+  echo "LEFTOVERS: quitting left ffmpeg or a session folder behind" >&2
+  exit 1
+fi
+echo "Clean: nothing outlived the app"

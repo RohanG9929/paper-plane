@@ -1,0 +1,265 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5050504C0000000000000101 /* PaperPlaneCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5050504C0000000000000102 /* PaperPlaneCore */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		5050504C0000000000000002 /* Paper Plane.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Paper Plane.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5050504C0000000000000004 /* PaperPlane-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "PaperPlane-Info.plist"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		5050504C0000000000000003 /* PaperPlane */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PaperPlane;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5050504C0000000000000012 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5050504C0000000000000101 /* PaperPlaneCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5050504C0000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				5050504C0000000000000003 /* PaperPlane */,
+				5050504C0000000000000004 /* PaperPlane-Info.plist */,
+				5050504C0000000000000005 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5050504C0000000000000005 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5050504C0000000000000002 /* Paper Plane.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5050504C0000000000000010 /* PaperPlane */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5050504C0000000000000030 /* Build configuration list for PBXNativeTarget "PaperPlane" */;
+			buildPhases = (
+				5050504C0000000000000011 /* Sources */,
+				5050504C0000000000000012 /* Frameworks */,
+				5050504C0000000000000013 /* Resources */,
+				5050504C0000000000000014 /* Embed ffmpeg */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5050504C0000000000000003 /* PaperPlane */,
+			);
+			name = PaperPlane;
+			packageProductDependencies = (
+				5050504C0000000000000102 /* PaperPlaneCore */,
+			);
+			productName = PaperPlane;
+			productReference = 5050504C0000000000000002 /* Paper Plane.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5050504C0000000000000000 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2710;
+				LastUpgradeCheck = 2710;
+			};
+			buildConfigurationList = 5050504C0000000000000020 /* Build configuration list for PBXProject "PaperPlane" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5050504C0000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				5050504C0000000000000103 /* XCLocalSwiftPackageReference "../core" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5050504C0000000000000005 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5050504C0000000000000010 /* PaperPlane */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5050504C0000000000000013 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		5050504C0000000000000014 /* Embed ffmpeg */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed ffmpeg";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/../scripts/embed-ffmpeg.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5050504C0000000000000011 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		5050504C0000000000000021 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		5050504C0000000000000022 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		5050504C0000000000000031 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = "PaperPlane-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.paperplane.app;
+				PRODUCT_NAME = "Paper Plane";
+			};
+			name = Debug;
+		};
+		5050504C0000000000000032 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = "PaperPlane-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.paperplane.app;
+				PRODUCT_NAME = "Paper Plane";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5050504C0000000000000020 /* Build configuration list for PBXProject "PaperPlane" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5050504C0000000000000021 /* Debug */,
+				5050504C0000000000000022 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5050504C0000000000000030 /* Build configuration list for PBXNativeTarget "PaperPlane" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5050504C0000000000000031 /* Debug */,
+				5050504C0000000000000032 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		5050504C0000000000000103 /* XCLocalSwiftPackageReference "../core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../core;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5050504C0000000000000102 /* PaperPlaneCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PaperPlaneCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 5050504C0000000000000000 /* Project object */;
+}

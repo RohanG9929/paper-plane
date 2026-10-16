@@ -10,7 +10,7 @@ Paper Plane converts on the fly whatever your TV can't play, copying everything 
 
 ## Development
 
-You need macOS 14 or later on Apple Silicon, Swift 6 and Homebrew.
+You need macOS 14 or later on Apple Silicon, Xcode 26 or later, and Homebrew.
 
 ```bash
 brew install ffmpeg            # development and tests only
@@ -20,7 +20,12 @@ scripts/test-core.sh           # runs the PaperPlaneCore tests
 brew install meson ninja autoconf automake libtool pkgconf
 scripts/build-ffmpeg.sh        # builds the ffmpeg the app ships into vendor/ffmpeg/ (a few minutes)
 scripts/check-ffmpeg.sh        # checks that build
+
+open app/PaperPlane.xcodeproj  # the app; run the PaperPlane scheme
+scripts/check-quit-cleanup.sh  # checks quitting never leaves ffmpeg or session files behind
 ```
+
+Debug builds made before `scripts/build-ffmpeg.sh` use Homebrew's ffmpeg. Release builds need the bundled one.
 
 ## License
 

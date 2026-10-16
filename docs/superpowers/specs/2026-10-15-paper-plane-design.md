@@ -222,7 +222,7 @@ The unit and integration layers run in CI on GitHub's macOS runners. No TV is ne
 
 ## 9. Tooling and repo layout
 
-- **App:** Swift 6, SwiftUI, AVFoundation/AVKit, Network.framework, MediaPlayer. Built with Xcode, which is not yet installed (only the Command Line Tools are) and is required from Milestone 1. Milestone 0 builds with `swiftc` from the Command Line Tools.
+- **App:** Swift 6, SwiftUI, AVFoundation/AVKit, Network.framework, MediaPlayer. Built with Xcode 26 or later (`app/PaperPlane.xcodeproj`, which uses synchronized folders). Milestone 0 built with `swiftc` from the Command Line Tools.
 - **ffmpeg:** built from source by `scripts/build-ffmpeg.sh` (arm64, static):
   - Enabled: VideoToolbox, AudioToolbox, libass (subtitle burn-in), libdav1d (AV1 decode), zimg (`zscale`, HDR → SDR tone mapping for the "Convert HDR to SDR" override).
   - No x264/x265: encoding uses VideoToolbox.

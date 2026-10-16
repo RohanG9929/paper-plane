@@ -101,12 +101,19 @@ struct PlaybackControllerTests {
 @MainActor
 @Suite(.enabled(if: UITestMedia.available, "Needs ffmpeg (brew install ffmpeg) and scripts/make-test-media.sh"))
 struct PlaybackControllerMediaTests {
-    private func readyController() async throws -> PlaybackController {
+    private static func environment(
+        startStream: @escaping @Sendable (StreamPipeline, ResolvedInput) async throws -> ServedStream
+            = { try await $0.start($1) }
+    ) throws -> PlaybackController.Environment {
         let tools = try #require(ToolPaths.locate())
-        let environment = PlaybackController.Environment(
+        return PlaybackController.Environment(
             tools: { tools }, host: { "127.0.0.1" },
-            folders: SessionFolders(root: FileManager.default.temporaryDirectory.appendingPathComponent("pp-\(UUID())")))
-        let controller = PlaybackController(environment: environment, showsWelcome: false, welcomeSeen: {})
+            folders: SessionFolders(root: FileManager.default.temporaryDirectory.appendingPathComponent("pp-\(UUID())")),
+            startStream: startStream)
+    }
+
+    private func readyController() async throws -> PlaybackController {
+        let controller = PlaybackController(environment: try Self.environment(), showsWelcome: false, welcomeSeen: {})
         controller.player.isMuted = true
         controller.play([UITestMedia.file("h264_aac.mp4")])
         await PlaybackControllerTests.eventually { controller.phase != .preparing }
@@ -143,6 +150,29 @@ struct PlaybackControllerMediaTests {
         try await Task.sleep(for: .milliseconds(300))
         #expect(controller.phase == .onTV)
         #expect(controller.player.rate == 0, "it was paused before the TV dropped, so it stays paused")
+        await controller.shutDown()
+    }
+
+    /// A stream the Mac's player refuses (here an HDR master playlist with no FRAME-RATE, which
+    /// AVFoundation rejects) ends in a plain message instead of waiting for a TV forever.
+    @Test func aStreamThePlayerRefusesEndsInAPlainMessage() async throws {
+        let environment = try Self.environment { pipeline, input in
+            let stream = try await pipeline.start(input)
+            let master = stream.session.folder.appendingPathComponent("master.m3u8")
+            let refused = try String(contentsOf: master, encoding: .utf8)
+                .replacingOccurrences(of: "FRAME-RATE=30.000,", with: "")
+                .replacingOccurrences(of: "VIDEO-RANGE=SDR", with: "VIDEO-RANGE=PQ")
+            try refused.write(to: master, atomically: true, encoding: .utf8)
+            return stream
+        }
+        let controller = PlaybackController(environment: environment, showsWelcome: false, welcomeSeen: {})
+        controller.player.isMuted = true
+        controller.play([UITestMedia.file("h264_aac.mp4")])
+        await PlaybackControllerTests.eventually {
+            if case .failed = controller.phase { true } else { false }
+        }
+        #expect(controller.phase == .failed("Paper Plane couldn't play this video. Try another file."))
+        #expect(controller.title == "h264_aac")
         await controller.shutDown()
     }
 

@@ -81,6 +81,9 @@ public final class PlaybackController {
     @ObservationIgnored private var starting: Task<Void, Never>?
     @ObservationIgnored private var watchingEvents: Task<Void, Never>?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
+    /// Watch the current item for the player refusing it or stalling for good.
+    @ObservationIgnored private var itemStatus: NSKeyValueObservation?
+    @ObservationIgnored private var itemFailure: (any NSObjectProtocol)?
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private let log = Logger(subsystem: "dev.paperplane.app", category: "playback")
 
@@ -181,6 +184,11 @@ public final class PlaybackController {
         watchingEvents?.cancel()
         watchingEvents = nil
         player.pause()
+        itemStatus = nil
+        if let itemFailure {
+            NotificationCenter.default.removeObserver(itemFailure)
+        }
+        itemFailure = nil
         player.replaceCurrentItem(with: nil)
         if let stream {
             Task { await stream.stop() }
@@ -231,7 +239,9 @@ public final class PlaybackController {
             movieTime = stream.session.offset
             detail = Self.detail(for: stream.media)
             watchingEvents = Task { await watch(stream.session) }
-            player.replaceCurrentItem(with: AVPlayerItem(url: stream.url))
+            let item = AVPlayerItem(url: stream.url)
+            watchForFailure(of: item)
+            player.replaceCurrentItem(with: item)
             phase = .waitingForTV
             externalPlaybackChanged()
             if let jpeg = await environment.thumbnail(tools, url, duration), self.stream === stream {
@@ -242,11 +252,16 @@ public final class PlaybackController {
             // this controller's business, and acting on it would stop the newer video.
             guard !Task.isCancelled, !(error is CancellationError) else { return }
             log.error("Couldn't play \(url.lastPathComponent, privacy: .private): \(String(describing: error), privacy: .private)")
-            let name = title
-            stop()
-            title = name
-            phase = .failed(PlaybackError.message(for: error))
+            fail(PlaybackError.message(for: error))
         }
+    }
+
+    /// Stops everything, keeping the title, and shows `message`.
+    private func fail(_ message: String) {
+        let name = title
+        stop()
+        title = name
+        phase = .failed(message)
     }
 
     private func watch(_ session: TranscodeSession) async {
@@ -258,10 +273,7 @@ public final class PlaybackController {
                 convertedEnd = duration ?? convertedEnd
             case .failed(let message):
                 log.error("ffmpeg failed: \(message, privacy: .private)")
-                let name = title
-                stop()
-                title = name
-                phase = .failed("Converting the video stopped part-way through.")
+                fail("Converting the video stopped part-way through.")
             }
         }
     }
@@ -302,6 +314,28 @@ public final class PlaybackController {
             tvWentAway = true
             phase = .waitingForTV
         }
+    }
+
+    /// Fails with a plain message when the player refuses `item` or can't play on, instead of
+    /// waiting for a TV forever.
+    private func watchForFailure(of item: AVPlayerItem) {
+        itemStatus = item.observe(\.status) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            let reason = String(describing: item.error)
+            Task { @MainActor in self?.playerFailed(item, reason: reason) }
+        }
+        itemFailure = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main
+        ) { [weak self] notification in
+            let reason = String(describing: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey])
+            MainActor.assumeIsolated { self?.playerFailed(item, reason: reason) }
+        }
+    }
+
+    private func playerFailed(_ item: AVPlayerItem, reason: String) {
+        guard player.currentItem === item else { return }
+        log.error("The player failed: \(reason, privacy: .private)")
+        fail("Paper Plane couldn't play this video. Try another file.")
     }
 
     private func timeChanged(_ time: CMTime) {

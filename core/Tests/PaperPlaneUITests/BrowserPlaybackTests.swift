@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite(.enabled(if: UITestMedia.available, "Needs ffmpeg and scripts/make-test-media.sh"))
 struct BrowserPlaybackTests {
-    static let refused = "The site stopped the stream — click Paper Plane in your browser again."
+    static let refused = "The site stopped the stream — reload the page, then click Paper Plane again."
 
     static func request(_ url: URL, kind: String = "stream", format: String = "progressive", cookie: String? = nil,
                         startAt: Double = 0, title: String = "A film") throws -> PlayRequest {
@@ -63,6 +63,31 @@ struct BrowserPlaybackTests {
         await controller.shutDown()
     }
 
+    /// A link that expires while converting: ffmpeg skips the segments it's refused and finishes
+    /// early without a word, so Paper Plane says why the video will end there.
+    @Test func aSiteThatRefusesTheRestPartWayIsNamed() async throws {
+        let folder = try await UITestServer.liveHLS()
+        let playlist = folder.appendingPathComponent("index.m3u8")
+        let text = try String(contentsOf: playlist, encoding: .utf8).replacingOccurrences(of: "seg2.ts", with: "status/403/seg2.ts")
+        try (text + "\n#EXT-X-ENDLIST\n").write(to: playlist, atomically: true, encoding: .utf8)
+        let server = try await UITestServer(directory: folder)
+        defer { server.stop() }
+        let controller = Self.controller(try PlaybackControllerMediaTests.environment())
+        #expect(await controller.play(try Self.request(server.url("index.m3u8"), format: "hls")) == .ok)
+        await PlaybackControllerTests.eventually { controller.conversionFinished }
+        #expect(controller.notice == "The site stopped sending this video part-way through. Reload the page, then click Paper Plane again for the rest.")
+        #expect((controller.convertedEnd ?? 0) < 25) // not claimed as converted to the end
+        await controller.shutDown()
+    }
+
+    /// DASH needs an ffmpeg built with libxml2, which Paper Plane's isn't yet.
+    @Test func dashIsTurnedAwayPlainly() async throws {
+        let controller = Self.controller(try PlaybackControllerMediaTests.environment())
+        let reply = await controller.play(try Self.request(URL(string: "https://a.example/m.mpd")!, format: "dash"))
+        #expect(reply == .failed("Paper Plane can't play this site's kind of stream (DASH) yet."))
+        #expect(controller.phase == .idle)
+    }
+
     /// A link that expires while the video plays stops ffmpeg part-way through.
     @Test func aSiteThatStopsPartWayThroughIsNamedToo() {
         let refused = ConversionStopped(message: "[https @ 0x1] Server returned 403 Forbidden (access denied)")
@@ -98,6 +123,11 @@ struct BrowserPlaybackTests {
         try await Task.sleep(for: .milliseconds(200))
         controller.play([UITestMedia.file("h264_aac.mp4")])
         #expect(await first.value == .failed("Another video took its place."))
+        // Stopped from the remote before it was ready: the browser hears so.
+        let second = Task { await controller.play(request) }
+        try await Task.sleep(for: .milliseconds(200))
+        controller.stop()
+        #expect(await second.value == .failed("Stopped in Paper Plane."))
         await controller.shutDown()
     }
 
@@ -121,6 +151,16 @@ struct BrowserPlaybackTests {
         controller.externalPlaybackChanged(active: true)
         controller.seek(toMovieTime: 5)
         #expect(controller.loading == nil) // nothing to seek in
+        let nowPlaying = NowPlaying(controller: controller)
+        #expect(!nowPlaying.handle(.skip(10)) && !nowPlaying.handle(.seek(to: 5))) // nor for the media keys
+        #expect(nowPlaying.handle(.togglePlayPause))
+        nowPlaying.handle(.togglePlayPause)
+        // A new session (a network change, another audio track) starts at the live edge too,
+        // not as far into the stream as the clock has run.
+        controller.movieTime = 25
+        controller.restart(at: nil, loading: "Reconnecting…")
+        await PlaybackControllerTests.eventually { controller.loading == nil }
+        #expect(controller.stream?.session.offset == 0)
         controller.segments = (0..<300).map { SegmentWindow.Segment(index: $0, start: Double($0) * 6, end: Double($0 + 1) * 6) }
         controller.movieTime = 400
         controller.manageWindow()

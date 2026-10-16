@@ -35,9 +35,6 @@ public struct SegmentWindow: Equatable, Sendable {
     public var pauseAhead: Double
     /// …and resumes once it is less than this far ahead.
     public var resumeAhead: Double
-    /// False for web streams: the site may drop a connection ffmpeg leaves idle, so their
-    /// conversion runs on and only what's behind is deleted (addendum M3-16).
-    public var pausesConversion = true
 
     public init(keepBehind: Double = 300, pauseAhead: Double = 1200, resumeAhead: Double = 600) {
         self.keepBehind = keepBehind
@@ -51,11 +48,13 @@ public struct SegmentWindow: Equatable, Sendable {
     }
 
     /// What to do now. `segments` are the ones still on disk, in order; `playhead` is session time.
+    /// `restsConversion` is false for web streams: the site may drop a connection ffmpeg leaves
+    /// idle, so their conversion runs on and only what's behind is deleted (addendum M3-16).
     public func actions(playhead: Double, segments: [Segment], conversionPaused: Bool,
-                        conversionFinished: Bool) -> [Action] {
+                        conversionFinished: Bool, restsConversion: Bool = true) -> [Action] {
         var actions: [Action] = []
         let ahead = (segments.last?.end ?? 0) - playhead
-        if pausesConversion && !conversionFinished {
+        if restsConversion && !conversionFinished {
             if !conversionPaused && ahead >= pauseAhead {
                 actions.append(.pauseConversion)
             } else if conversionPaused && ahead < resumeAhead {

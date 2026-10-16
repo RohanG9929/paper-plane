@@ -57,13 +57,14 @@ public struct PlayRequest: Equatable, Sendable {
     }
 
     public var source: Source
-    public var pageURL: URL?
     public var title: String
     /// Where the browser's video was, in seconds.
     public var startAt: Double
 
     /// The only headers passed on: what sites need to hand over the video, nothing else.
     static let allowedHeaders = ["Cookie", "Referer", "Origin", "User-Agent"]
+    /// A page chooses its own title; the remote, the menu and Control Center get at most this.
+    public static let maximumTitleLength = 200
 
     public static func decode(_ data: Data) throws -> PlayRequest {
         guard let message = try? JSONDecoder().decode(Message.self, from: data) else {
@@ -88,14 +89,14 @@ public struct PlayRequest: Equatable, Sendable {
             throw Invalid(reason: "unknown source")
         }
         let given = (message.title ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return PlayRequest(source: decodedSource, pageURL: message.pageUrl.flatMap { try? webURL($0) },
-                           title: given.isEmpty ? fallbackTitle(for: url) : given, startAt: startAt)
+        let title = given.isEmpty ? fallbackTitle(for: url) : given
+        return PlayRequest(source: decodedSource, title: String(title.prefix(maximumTitleLength)), startAt: startAt)
     }
 
     /// What ffmpeg reads, for a stream. nil for a page, which needs yt-dlp first.
     public var input: ResolvedInput? {
-        guard case .stream(let url, _, let headers) = source else { return nil }
-        return ResolvedInput(inputs: [ResolvedInput.Input(url: url, headers: headers)], title: title)
+        guard case .stream(let url, let format, let headers) = source else { return nil }
+        return ResolvedInput(inputs: [ResolvedInput.Input(url: url, headers: headers, isHLS: format == .hls)], title: title)
     }
 
     /// The allowed headers, named the usual way whatever case they came in.
@@ -109,9 +110,10 @@ public struct PlayRequest: Equatable, Sendable {
         return kept
     }
 
-    /// "clip" for …/videos/clip.mp4; "Video" when the path says nothing.
+    /// "clip" for …/videos/clip.mp4; "Video" when the path says nothing. (lastPathComponent is
+    /// already decoded.)
     private static func fallbackTitle(for url: URL) -> String {
-        let name = url.deletingPathExtension().lastPathComponent.removingPercentEncoding ?? ""
+        let name = url.deletingPathExtension().lastPathComponent
         return name.isEmpty || name == "/" ? "Video" : name
     }
 
@@ -133,7 +135,6 @@ public struct PlayRequest: Equatable, Sendable {
         var type: String
         var v: Int
         var source: Source?
-        var pageUrl: String?
         var title: String?
         var startAt: Double?
     }

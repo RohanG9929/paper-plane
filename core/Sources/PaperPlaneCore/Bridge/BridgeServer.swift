@@ -8,27 +8,31 @@ public final class BridgeServer: Sendable {
     public enum Failure: Error, Equatable {
         /// Longer than a socket address holds (104 bytes, with its terminating zero).
         case pathTooLong
+        /// Another copy of the app is already answering there.
+        case alreadyListening
         case cannotListen(String)
     }
 
     /// Where the app listens: `~/Library/Application Support/Paper Plane/bridge.sock`.
     public static var standardSocket: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Paper Plane/bridge.sock")
+        BrowserHosts.standardApplicationSupport.appendingPathComponent("Paper Plane/bridge.sock")
     }
 
-    public let socket: URL
+    private let socket: URL
+    /// The socket file this server made, so stopping never removes another copy's.
+    private let inode: ino_t
     private let listener: NWListener
     private static let log = Logger(subsystem: "dev.paperplane.app", category: "bridge")
 
-    private init(socket: URL, listener: NWListener) {
+    private init(socket: URL, inode: ino_t, listener: NWListener) {
         self.socket = socket
+        self.inode = inode
         self.listener = listener
     }
 
-    /// Listens at `socket`, replacing a socket file a crash left behind, and answers each request
-    /// with `handler`. A connection that hasn't sent a whole request within `requestLimit` is
-    /// closed.
+    /// Listens at `socket`, replacing a socket file a crash left behind (but not one another copy
+    /// of the app still answers on), and answers each request with `handler`. A connection that
+    /// hasn't sent a whole request within `requestLimit` is closed.
     public static func start(at socket: URL, requestLimit: Duration = .seconds(10),
                              handler: @escaping @Sendable (PlayRequest) async -> PlayReply) async throws -> BridgeServer {
         guard socket.path.utf8.count < 104 else { throw Failure.pathTooLong }
@@ -36,48 +40,40 @@ public final class BridgeServer: Sendable {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        if let descriptor = try? HostRelay.connect(to: socket) {
+            close(descriptor)
+            throw Failure.alreadyListening
+        }
         unlink(socket.path)
 
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .unix(path: socket.path)
+        let queue = DispatchQueue(label: "dev.paperplane.bridge")
         let listener: NWListener
         do {
             listener = try NWListener(using: parameters)
+            listener.newConnectionHandler = { connection in
+                connection.start(queue: queue)
+                Task { await serve(connection, requestLimit: requestLimit, handler: handler) }
+            }
+            try await listener.startAndWaitUntilReady(queue: queue)
         } catch {
             throw Failure.cannotListen(String(describing: error))
         }
-        let queue = DispatchQueue(label: "dev.paperplane.bridge")
-        listener.newConnectionHandler = { connection in
-            connection.start(queue: queue)
-            Task { await serve(connection, requestLimit: requestLimit, handler: handler) }
-        }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-            listener.stateUpdateHandler = { state in
-                let result: Result<Void, any Error>? = switch state {
-                case .ready: .success(())
-                case .failed(let error): .failure(Failure.cannotListen(String(describing: error)))
-                case .cancelled: .failure(Failure.cannotListen("cancelled"))
-                default: nil
-                }
-                let first = resumed.withLock { (done: inout Bool) -> Bool in
-                    defer { done = true }
-                    return !done
-                }
-                guard let result, first else { return }
-                continuation.resume(with: result)
-            }
-            listener.start(queue: queue)
-        }
         // The socket is created with the umask's mode; only this user may write to it.
         chmod(socket.path, 0o600)
-        return BridgeServer(socket: socket, listener: listener)
+        var status = stat()
+        stat(socket.path, &status)
+        return BridgeServer(socket: socket, inode: status.st_ino, listener: listener)
     }
 
     /// Stops listening and removes the socket, so the helper knows the app isn't there.
     public func stop() {
         listener.cancel()
-        unlink(socket.path)
+        var status = stat()
+        if stat(socket.path, &status) == 0, status.st_ino == inode {
+            unlink(socket.path)
+        }
     }
 
     private static func serve(_ connection: NWConnection, requestLimit: Duration,
@@ -89,9 +85,6 @@ public final class BridgeServer: Sendable {
         } catch let invalid as PlayRequest.Invalid {
             log.error("Refused a request: \(invalid.reason, privacy: .public)")
             reply = .failed("Paper Plane can't play this (\(invalid.reason)).")
-        } catch NativeMessaging.Error.tooLarge {
-            log.error("Refused a request: too large")
-            reply = .failed("Paper Plane can't play this (request too large).")
         } catch {
             // Closed or silent: nobody to answer.
             connection.cancel()
@@ -109,8 +102,12 @@ public final class BridgeServer: Sendable {
             group.addTask {
                 var buffer = Data()
                 while true {
-                    if let message = try NativeMessaging.take(from: &buffer) {
-                        return message
+                    do {
+                        if let message = try NativeMessaging.take(from: &buffer) {
+                            return message
+                        }
+                    } catch NativeMessaging.Error.tooLarge {
+                        throw PlayRequest.Invalid(reason: "request too large")
                     }
                     buffer += try await receive(on: connection)
                 }

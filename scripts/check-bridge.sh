@@ -65,7 +65,7 @@ open "$APP" --args -PaperPlaneInstallsBrowserHosts NO
 until [[ -S "$SOCKET" ]]; do sleep 0.1; done
 expect "a stream plays" '{"ok":true}' "$(send "http://127.0.0.1:$port/cookie/pp=1/h264_aac.mp4")"
 expect "a refused stream says so" \
-  '{"error":"The site stopped the stream — click Paper Plane in your browser again.","ok":false}' \
+  '{"error":"The site stopped the stream — reload the page, then click Paper Plane again.","ok":false}' \
   "$(send "http://127.0.0.1:$port/status/403/h264_aac.mp4")"
 
 quit_app

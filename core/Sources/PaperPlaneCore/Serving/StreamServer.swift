@@ -29,33 +29,11 @@ public final class StreamServer: Sendable {
             receiveHead(on: connection, responder: responder, buffer: Data())
         }
 
-        let port: NWEndpoint.Port = try await withCheckedThrowingContinuation { continuation in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-            listener.stateUpdateHandler = { state in
-                let result: Result<NWEndpoint.Port, any Error>
-                switch state {
-                case .ready:
-                    guard let port = listener.port else { return }
-                    result = .success(port)
-                case .failed(let error), .waiting(let error):
-                    // .waiting means the address isn't available (say, the Mac's IP just changed),
-                    // which waiting won't fix.
-                    listener.cancel()
-                    result = .failure(error)
-                case .cancelled:
-                    result = .failure(CancellationError())
-                default:
-                    return
-                }
-                let first = resumed.withLock { resumed in
-                    defer { resumed = true }
-                    return !resumed
-                }
-                if first {
-                    continuation.resume(with: result)
-                }
-            }
-            listener.start(queue: queue)
+        // .waiting means the address isn't available (say, the Mac's IP just changed): it throws.
+        try await listener.startAndWaitUntilReady(queue: queue)
+        guard let port = listener.port else {
+            listener.cancel()
+            throw NWError.posix(.EADDRNOTAVAIL)
         }
         return StreamServer(baseURL: URL(string: "http://\(host):\(port.rawValue)/\(token)/")!, listener: listener)
     }

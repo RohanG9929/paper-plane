@@ -18,6 +18,12 @@ struct NowPlayingTests {
         live.isLive = true
         #expect(NowPlaying.info(live, artwork: nil)[MPNowPlayingInfoPropertyIsLiveStream] as? Bool == true)
         #expect(NowPlaying.info(Self.state(), artwork: nil)[MPNowPlayingInfoPropertyIsLiveStream] == nil)
+        // Found to be live after it was first published: published again.
+        var preparing = Self.state(playing: false)
+        preparing.duration = nil
+        var found = preparing
+        found.isLive = true
+        #expect(preparing.differs(from: found))
     }
 
     @Test func describesTheVideoForControlCenter() {

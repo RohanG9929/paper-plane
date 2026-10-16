@@ -7,10 +7,13 @@ public struct ResolvedInput: Equatable, Sendable {
         public var url: URL
         /// HTTP headers the site expects (cookies, referer, user agent). Never logged.
         public var headers: [String: String]
+        /// An HLS playlist, whose segments may be named anything.
+        public var isHLS: Bool
 
-        public init(url: URL, headers: [String: String] = [:]) {
+        public init(url: URL, headers: [String: String] = [:], isHLS: Bool = false) {
             self.url = url
             self.headers = headers
+            self.isHLS = isHLS
         }
 
         /// What to pass to ffmpeg's `-i`: a plain path for files, the full URL otherwise.
@@ -19,8 +22,9 @@ public struct ResolvedInput: Equatable, Sendable {
         }
 
         /// What a web input, and every playlist or segment it names, may be read over: never
-        /// file:, udp: or rtp:, whatever a site's playlist says.
-        static let webOnly = ["-protocol_whitelist", "https,http,tls,tcp,crypto,data"]
+        /// file:, udp: or rtp:, whatever a site's playlist says. A site that stops answering is
+        /// given up on after 30 seconds rather than waited for for ever.
+        static let webOnly = ["-protocol_whitelist", "https,http,tls,tcp,crypto,data", "-rw_timeout", "30000000"]
 
         /// Options that must come right before this input's `-i` (ffmpeg) or the input (ffprobe).
         public var ffmpegOptions: [String] {
@@ -37,6 +41,9 @@ public struct ResolvedInput: Equatable, Sendable {
                 let block = remaining.keys.sorted().map { "\($0): \(remaining[$0]!)\r\n" }.joined()
                 options += ["-headers", block]
             }
+            if isHLS {
+                options += ["-extension_picky", "0"] // segments named anything (the whitelist guards)
+            }
             return options
         }
 
@@ -52,6 +59,11 @@ public struct ResolvedInput: Equatable, Sendable {
     public init(inputs: [Input], title: String) {
         self.inputs = inputs
         self.title = title
+    }
+
+    /// From the web, as opposed to files on this Mac.
+    public var isWeb: Bool {
+        inputs.contains { !$0.url.isFileURL }
     }
 
     /// A local file, titled by its name without the extension.

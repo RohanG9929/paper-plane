@@ -43,6 +43,7 @@ struct PlayRequestTests {
         #expect(headers == ["Cookie": "session=1", "Referer": "https://site.example/watch",
                             "User-Agent": "Mozilla/5.0", "Origin": "https://site.example"])
         #expect(request.input?.inputs.first?.headers.count == 4)
+        #expect(request.input?.inputs.first?.isHLS == true)
         #expect(request.input?.title == "A film")
     }
 
@@ -83,6 +84,19 @@ struct PlayRequestTests {
             {"type":"play","v":1,"source":{"kind":"stream","url":"https://a.example/videos/clip.mp4","format":"progressive"}}
             """))
         #expect(untitled.title == "clip")
+        let percent = try PlayRequest.decode(Self.json("""
+            {"type":"play","v":1,"source":{"kind":"stream","url":"https://a.example/v/100%25.mp4","format":"progressive"}}
+            """))
+        #expect(percent.title == "100%")
+    }
+
+    /// A page decides its own title; the remote, the menu and Control Center get a sensible length.
+    @Test func longTitlesAreCut() throws {
+        let long = String(repeating: "word ", count: 20_000)
+        let request = try PlayRequest.decode(Self.json("""
+            {"type":"play","v":1,"source":{"kind":"page","url":"https://a.example/"},"title":"\(long)"}
+            """))
+        #expect(request.title.count == PlayRequest.maximumTitleLength)
     }
 
     @Test func repliesInTheSpecsShape() throws {

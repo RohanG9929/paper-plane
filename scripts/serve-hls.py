@@ -21,9 +21,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, **HLS_TYPES}
 
     def admit(self):
-        """Test hooks that act like a site: /status/<code>/… answers with that status, and
-        /cookie/<name>=<value>/… serves the rest of the path only with that cookie."""
+        """Test hooks that act like a site: /status/<code>/… answers with that status,
+        /cookie/<name>=<value>/… serves the rest of the path only with that cookie, and
+        /redirect/<host:port>/… redirects to the rest of the path on that host."""
+        if self.server.log:
+            with open(self.server.log, "a") as log:
+                log.write(f"{self.headers.get('Host')} {self.path} cookie={self.headers.get('Cookie')}\n")
         parts = self.path.split("/", 3)  # "", hook, argument, rest
+        if len(parts) >= 3 and parts[1] == "redirect":
+            self.send_response(302)
+            self.send_header("Location", f"http://{parts[2]}/" + (parts[3] if len(parts) > 3 else ""))
+            self.end_headers()
+            return False
         if len(parts) >= 3 and parts[1] == "status":
             self.send_error(int(parts[2]))
             return False
@@ -54,11 +63,13 @@ def main():
     parser.add_argument("--bind", default="127.0.0.1", help="use 0.0.0.0 so a TV can connect")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--verbose", action="store_true", help="log every request")
+    parser.add_argument("--log", help="append each request's host, path and cookie to this file")
     options = parser.parse_args()
 
     handler = functools.partial(Handler, directory=options.directory)
     server = http.server.ThreadingHTTPServer((options.bind, options.port), handler)
     server.verbose = options.verbose
+    server.log = options.log
     print(f"PORT {server.server_address[1]}", flush=True)
     server.serve_forever()
 

@@ -37,6 +37,45 @@ struct WebInputTests {
         await stream.stop()
     }
 
+    /// A site's master playlist lists its cheapest variant first; the TV gets the best one.
+    @Test func playsTheBestVariantOfAMasterPlaylist() async throws {
+        let tools = try #require(TestSupport.tools)
+        let folder = try await Self.makeHLS(live: false)
+        let master = ["#EXTM3U",
+                      "#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=1280x720", "index.m3u8",
+                      "#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1280x720", "copy.m3u8"]
+        try master.joined(separator: "\n").write(to: folder.appendingPathComponent("master.m3u8"), atomically: true, encoding: .utf8)
+        try FileManager.default.copyItem(at: folder.appendingPathComponent("index.m3u8"), to: folder.appendingPathComponent("copy.m3u8"))
+        let server = try await HLSServer(directory: folder)
+        defer { server.stop() }
+        let pipeline = StreamPipeline(tools: tools, folders: SessionFolders(root: try TestSupport.makeTemporaryDirectory()),
+                                      profile: .default, host: "127.0.0.1")
+        let media = try await pipeline.probe(Self.web(server.url("master.m3u8")))
+        #expect(media.info.video.map(\.variant) == [3_000_000])
+        #expect(media.info.audio.map(\.variant) == [3_000_000])
+        let stream = try await pipeline.start(media, at: 0)
+        #expect(stream.plan.video == media.info.video.first?.ref)
+        await stream.stop()
+    }
+
+    /// Plenty of sites name segments without a media extension, which ffmpeg 9 refuses unless told.
+    @Test func readsSegmentsNamedAnything() async throws {
+        let tools = try #require(TestSupport.tools)
+        let folder = try await Self.makeHLS(live: false)
+        var playlist = try String(contentsOf: folder.appendingPathComponent("index.m3u8"), encoding: .utf8)
+        for name in try FileManager.default.contentsOfDirectory(atPath: folder.path) where name.hasSuffix(".ts") {
+            let bare = String(name.dropLast(3))
+            try FileManager.default.moveItem(at: folder.appendingPathComponent(name), to: folder.appendingPathComponent(bare))
+            playlist = playlist.replacingOccurrences(of: name, with: bare)
+        }
+        try playlist.write(to: folder.appendingPathComponent("index.m3u8"), atomically: true, encoding: .utf8)
+        let server = try await HLSServer(directory: folder)
+        defer { server.stop() }
+        let input = ResolvedInput(inputs: [.init(url: server.url("index.m3u8"), isHLS: true)], title: "Web")
+        let info = try await MediaProbe(tools: tools).probe(input)
+        #expect(info.video.count == 1)
+    }
+
     /// Spec §6: a site that refuses the stream (an expired link or a missing cookie).
     @Test(arguments: ["status/403/h264_aac.mp4", "status/410/h264_aac.mp4", "status/401/h264_aac.mp4",
                       "status/404/h264_aac.mp4", "cookie/pp=1/h264_aac.mp4"])

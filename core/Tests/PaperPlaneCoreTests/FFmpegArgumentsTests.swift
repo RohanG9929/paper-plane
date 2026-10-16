@@ -46,11 +46,12 @@ struct FFmpegArgumentsTests {
                                   audio: TrackRef(input: 1, index: 0), audioAction: .copy(.aac))
         let args = plan.ffmpegArguments(input: input, start: 754.25, output: Self.output)
         let web = ResolvedInput.Input.webOnly
-        #expect(Array(args.prefix(24)) == ["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error"]
+        let expected = ["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error"]
             + web + ["-headers", "Cookie: a=1\r\n", "-ss", "754.250", "-i", "https://cdn.example.com/video.mp4"]
             + web + ["-headers", "Cookie: a=1\r\n", "-ss", "754.250", "-i", "https://cdn.example.com/audio.m4a",
-                     "-map", "0:0", "-map"])
-        #expect(args[24] == "1:0")
+                     "-map", "0:0", "-map"]
+        #expect(Array(args.prefix(expected.count)) == expected)
+        #expect(args[expected.count] == "1:0")
     }
 
     @Test func hevcCopyIsTaggedForApple() {

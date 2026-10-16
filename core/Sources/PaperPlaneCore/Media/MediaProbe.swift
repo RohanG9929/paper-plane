@@ -21,6 +21,6 @@ public struct MediaProbe: Sendable {
             }
             parts.append(try FFprobeParser.parse(result.stdout, input: position))
         }
-        return MediaInfo.merging(parts)
+        return MediaInfo.merging(parts).keepingBestVariant()
     }
 }

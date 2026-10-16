@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var nowPlaying: NowPlaying?
     private let network = NWPathMonitor()
     private var bridge: BridgeServer?
+    private var quitting = false
     private let log = Logger(subsystem: "dev.paperplane.app", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -73,16 +74,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - The browser
 
     /// Lets Chrome and Brave start the helper (spec §5.2), on every launch in case the app moved.
+    /// Not from a translocated copy (opened where it was downloaded): that path goes away.
     private func installBrowserHosts() {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: Key.installsBrowserHosts) == nil || defaults.bool(forKey: Key.installsBrowserHosts)
+        UserDefaults.standard.register(defaults: [Key.installsBrowserHosts: true])
+        let bundle = Bundle.main.bundleURL
+        guard UserDefaults.standard.bool(forKey: Key.installsBrowserHosts),
+              !bundle.path.contains("/AppTranslocation/")
         else { return }
-        let host = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/paperplane-host")
-        guard FileManager.default.isExecutableFile(atPath: host.path) else { return }
-        do {
-            try BrowserHosts.install(host: host, applicationSupport: BrowserHosts.standardApplicationSupport)
-        } catch {
-            log.error("Couldn't install the browser helper: \(String(describing: error), privacy: .public)")
+        let log = log
+        Task.detached(priority: .utility) {
+            let host = BrowserHosts.helper(inBundle: bundle)
+            guard FileManager.default.isExecutableFile(atPath: host.path) else { return }
+            do {
+                try BrowserHosts.install(host: host, applicationSupport: BrowserHosts.standardApplicationSupport)
+            } catch {
+                log.error("Couldn't install the browser helper: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
@@ -100,8 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A video from the browser: the remote comes forward to choose the TV, as for a file.
+    /// A video from the browser: the remote comes forward to choose the TV, as for a file. None
+    /// once quitting has begun, when nothing would wait for its ffmpeg.
     private func play(_ request: PlayRequest) async -> PlayReply {
+        guard !quitting else { return .failed("Paper Plane is quitting.") }
         if request.input != nil {
             remote.show()
         }
@@ -115,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // ffmpeg must not outlive the app, and the helper must find no socket.
+        quitting = true
         network.cancel()
         bridge?.stop()
         Task {

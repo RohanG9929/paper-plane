@@ -31,7 +31,7 @@ public final class NowPlaying {
         func differs(from next: Published) -> Bool {
             let expected = elapsed + (isPlaying ? next.at.timeIntervalSince(at) : 0)
             return title != next.title || duration != next.duration || isPlaying != next.isPlaying
-                || hasArtwork != next.hasArtwork || abs(next.elapsed - expected) > 1.5
+                || hasArtwork != next.hasArtwork || isLive != next.isLive || abs(next.elapsed - expected) > 1.5
         }
     }
 
@@ -92,6 +92,7 @@ public final class NowPlaying {
         case .play: if controller.isPaused { controller.togglePause() }
         case .pause: if !controller.isPaused { controller.togglePause() }
         case .stop: controller.stop()
+        case .skip where controller.isLive, .seek where controller.isLive: return false // nothing to seek in
         case .skip(let seconds): controller.skip(by: seconds)
         case .seek(let time): controller.seek(toMovieTime: time)
         }

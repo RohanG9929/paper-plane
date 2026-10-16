@@ -66,6 +66,18 @@ struct BridgeServerTests {
         #expect(folder[.posixPermissions] as? Int == 0o700)
     }
 
+    /// A second copy of the app (a development build beside the installed one) leaves a running
+    /// app's socket alone instead of taking it over.
+    @Test func leavesALiveSocketAlone() async throws {
+        let socket = BridgeFixtures.socket()
+        let first = try await BridgeServer.start(at: socket) { _ in .ok }
+        defer { first.stop() }
+        await #expect(throws: BridgeServer.Failure.alreadyListening) {
+            try await BridgeServer.start(at: socket) { _ in .failed("the second") }
+        }
+        #expect(await BridgeFixtures.relay(BridgeFixtures.play, socket: socket) == PlayReply.ok.encoded())
+    }
+
     @Test func refusesWhatItCantReadWithoutAskingThePlayer() async throws {
         let socket = BridgeFixtures.socket()
         let asked = OSAllocatedUnfairLock(initialState: false)
@@ -149,8 +161,7 @@ struct BridgeServerTests {
                     let descriptor = try HostRelay.connect(to: socket)
                     defer { close(descriptor) }
                     try HostRelay.write(bytes, to: descriptor)
-                    var buffer = Data()
-                    if let message = try? HostRelay.readFrame(from: descriptor, into: &buffer, limit: 5) {
+                    if let message = try? HostRelay.readFrame(from: descriptor, limit: 5) {
                         continuation.resume(returning: message)
                     } else {
                         continuation.resume(returning: Data())

@@ -10,7 +10,12 @@ public enum BrowserHosts {
     static let browsers = ["Google/Chrome", "BraveSoftware/Brave-Browser"]
 
     public static var standardApplicationSupport: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    }
+
+    /// Where the app bundle at `bundleURL` keeps the helper, beside ffmpeg (`ToolPaths.inBundle`).
+    public static func helper(inBundle bundleURL: URL) -> URL {
+        bundleURL.appendingPathComponent("Contents/Helpers/paperplane-host")
     }
 
     /// The manifest for the helper at `host`.

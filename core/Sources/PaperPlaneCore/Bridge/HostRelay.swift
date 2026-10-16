@@ -17,36 +17,36 @@ public enum HostRelay {
     }
 
     /// Relays `request` to the app listening at `socket` and returns its reply. With nothing
-    /// listening, calls `startApp` once and keeps trying for `startLimit` seconds; a reply that
-    /// hasn't come within `replyLimit` seconds is given up on.
+    /// listening, calls `startApp` once and keeps trying for `startLimit` seconds. The app answers
+    /// once the video is ready for the TV, which a slow site can draw out; a reply that hasn't
+    /// come within `replyLimit` seconds is given up on.
     public static func relay(_ request: Data, socket: URL, startApp: () -> Void,
-                             startLimit: Double = 10, replyLimit: Double = 120) -> Data {
+                             startLimit: Double = 10, replyLimit: Double = 300) -> Data {
         guard let descriptor = connect(to: socket, startingApp: startApp, within: startLimit) else {
             return PlayReply.failed("Couldn't start Paper Plane.").encoded()
         }
         defer { close(descriptor) }
         do {
             try write(NativeMessaging.frame(request), to: descriptor)
-            var buffer = Data()
-            return try readFrame(from: descriptor, into: &buffer, limit: replyLimit)
+            return try readFrame(from: descriptor, limit: replyLimit)
         } catch {
             return PlayReply.failed("Paper Plane didn't answer.").encoded()
         }
     }
 
-    /// The app bundle the helper is in: `…/Paper Plane.app/Contents/Helpers/paperplane-host`.
+    /// The app bundle the helper is in, the inverse of `BrowserHosts.helper(inBundle:)`.
     public static func app(containing helper: URL) -> URL? {
         let app = helper.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         return app.pathExtension == "app" ? app : nil
     }
 
     /// Opens `app` without bringing it to the front; it comes forward itself when asked to play.
+    /// Not waited for: the relay polls the socket until the app listens.
     public static func open(_ app: URL) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-g", app.path]
-        guard (try? process.run()) != nil else { return }
-        process.waitUntilExit()
+        try? process.run()
     }
 
     // MARK: - Sockets
@@ -104,10 +104,11 @@ public enum HostRelay {
         }
     }
 
-    /// Reads until `buffer` holds a whole frame and returns its message. Throws when the other
-    /// end closes first, the frame is too large, or `limit` seconds pass.
-    static func readFrame(from descriptor: Int32, into buffer: inout Data, limit: Double) throws -> Data {
+    /// Reads one whole frame and returns its message. Throws when the other end closes first,
+    /// the frame is too large, or `limit` seconds pass.
+    static func readFrame(from descriptor: Int32, limit: Double) throws -> Data {
         let deadline = Date(timeIntervalSinceNow: limit)
+        var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
             if let message = try NativeMessaging.take(from: &buffer) {

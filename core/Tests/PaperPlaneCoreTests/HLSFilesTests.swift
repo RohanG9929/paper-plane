@@ -109,6 +109,40 @@ struct MasterPlaylistTests {
         #expect(text.contains("#EXT-X-STREAM-INF:BANDWIDTH=800000,VIDEO-RANGE=SDR\nindex.m3u8\n"))
     }
 
+    @Test func offersSubtitleTracks() {
+        let text = MasterPlaylist.text(
+            bandwidth: 800_000, initSegment: InitSegment(codecs: nil, width: nil, height: nil), frameRate: nil,
+            videoRange: .sdr,
+            subtitles: [
+                MasterPlaylist.Subtitle(name: "English", language: "en", isForced: false, uri: "sub_0.m3u8"),
+                MasterPlaylist.Subtitle(name: #"Signs "and" songs"#, language: nil, isForced: true, uri: "sub_1.m3u8"),
+            ])
+        #expect(text == """
+            #EXTM3U
+            #EXT-X-VERSION:7
+            #EXT-X-INDEPENDENT-SEGMENTS
+            #EXT-X-START:TIME-OFFSET=0
+            #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",DEFAULT=NO,AUTOSELECT=YES,FORCED=NO,URI="sub_0.m3u8"
+            #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="Signs 'and' songs",DEFAULT=NO,AUTOSELECT=YES,FORCED=YES,URI="sub_1.m3u8"
+            #EXT-X-STREAM-INF:BANDWIDTH=800000,VIDEO-RANGE=SDR,SUBTITLES="subs"
+            index.m3u8
+
+            """)
+    }
+
+    @Test func aSubtitlePlaylistIsOneFileForTheWholeSession() {
+        #expect(MasterPlaylist.subtitlePlaylist(file: "sub_0.vtt", duration: 5_400.2) == """
+            #EXTM3U
+            #EXT-X-VERSION:3
+            #EXT-X-TARGETDURATION:5401
+            #EXT-X-PLAYLIST-TYPE:VOD
+            #EXTINF:5400.200,
+            sub_0.vtt
+            #EXT-X-ENDLIST
+
+            """)
+    }
+
     @Test func bandwidthIsThePeakSegmentRateWithHeadroom() {
         // 6 s of 3 MB is 4 Mb/s; 2 s of 2 MB is 8 Mb/s, the peak.
         #expect(MasterPlaylist.bandwidth(segmentSizes: [(3_000_000, 6), (2_000_000, 2)]) == 8_800_000)

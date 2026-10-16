@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 OUT=streams
 DUR=120
-rm -rf "$OUT/baseline" "$OUT/hevc" "$OUT/ac3" "$OUT/eac3" "$OUT/webvtt" "$OUT/hdr10"
+rm -rf "$OUT/baseline" "$OUT/hevc" "$OUT/ac3" "$OUT/eac3" "$OUT/ac3ts" "$OUT/eac3ts" "$OUT/webvtt" "$OUT/hdr10"
 mkdir -p "$OUT"
 
 VIDEO=(-f lavfi -i "testsrc=size=1920x1080:rate=30:duration=$DUR")
@@ -32,6 +32,20 @@ hls hevc "${VIDEO[@]}" "${STEREO[@]}" -c:v libx265 -preset ultrafast -x265-param
   -tag:v hvc1 -pix_fmt yuv420p -g 60 "${AAC[@]}"
 hls ac3 "${VIDEO[@]}" "${SURROUND[@]}" "${X264[@]}" -c:a ac3 -b:a 448k
 hls eac3 "${VIDEO[@]}" "${SURROUND[@]}" "${X264[@]}" -c:a eac3 -b:a 640k
+
+hls_ts() { # hls_ts <name> <ffmpeg input and codec arguments...> → MPEG-TS segments instead of fMP4
+  local name=$1
+  shift
+  mkdir -p "$OUT/$name"
+  echo "== $name"
+  ffmpeg -hide_banner -loglevel error -y "$@" \
+    -f hls -hls_time 6 -hls_playlist_type vod -hls_segment_type mpegts \
+    -hls_segment_filename "$OUT/$name/seg_%05d.ts" "$OUT/$name/index.m3u8"
+}
+
+# Added after the first TV run: the Sony rejected AC3/E-AC3 in fMP4, so check MPEG-TS too.
+hls_ts ac3ts "${VIDEO[@]}" "${SURROUND[@]}" "${X264[@]}" -c:a ac3 -b:a 448k
+hls_ts eac3ts "${VIDEO[@]}" "${SURROUND[@]}" "${X264[@]}" -c:a eac3 -b:a 640k
 # Tag the frames with setparams: ffmpeg 9's -color_* output options override x265's HDR tags with "unknown".
 hls hdr10 -f lavfi -i "testsrc2=size=3840x2160:rate=30:duration=$DUR" "${STEREO[@]}" \
   -vf "setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc" \

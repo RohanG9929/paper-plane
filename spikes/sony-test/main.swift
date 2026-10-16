@@ -12,6 +12,8 @@ let streams: [(name: String, path: String)] = [
     ("2 HEVC + AAC", "hevc/index.m3u8"),
     ("3 H.264 + AC3 5.1", "ac3/index.m3u8"),
     ("4 H.264 + E-AC3 5.1", "eac3/index.m3u8"),
+    ("3b H.264 + AC3 5.1 (MPEG-TS)", "ac3ts/index.m3u8"),
+    ("4b H.264 + E-AC3 5.1 (MPEG-TS)", "eac3ts/index.m3u8"),
     ("5 WebVTT subtitles", "webvtt/master.m3u8"),
     ("6 HDR10 HEVC (4K)", "hdr10/index.m3u8"),
     ("7 Live (growing EVENT playlist)", "live/index.m3u8"),

@@ -34,13 +34,19 @@ enum TestSupport {
     /// AirPlay can hand the stream to the TV.
     @MainActor
     static func playerItemStatus(_ url: URL) async -> AVPlayerItem.Status {
+        await playerItem(url).status
+    }
+
+    /// The same, with why the player refused it.
+    @MainActor
+    static func playerItem(_ url: URL) async -> (status: AVPlayerItem.Status, error: (any Error)?) {
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
         player.isMuted = true
         for _ in 0..<100 where item.status == .unknown {
             try? await Task.sleep(for: .milliseconds(100))
         }
-        return item.status
+        return (item.status, item.error)
     }
 
     /// Whether the ffmpeg under test has a filter, e.g. `zscale` (needed for HDR → SDR tone mapping).

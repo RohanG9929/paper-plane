@@ -98,9 +98,10 @@ extension PlaybackController {
         subtitleOptions.first { $0.id == id }
     }
 
-    /// Pictures are always drawn into the video; text is with "Always draw subtitles into the picture".
+    /// Pictures are always drawn into the video; text is with "Always draw subtitles into the
+    /// picture", or once the player opens the media playlist, which has no subtitle tracks.
     func burnsIn(_ option: SubtitleOption) -> Bool {
-        !option.isText || environment.settings().alwaysBurnInSubtitles
+        !option.isText || environment.settings().alwaysBurnInSubtitles || opensMediaPlaylist
     }
 
     /// What a session should show: the chosen audio, and the chosen subtitles, waiting for them

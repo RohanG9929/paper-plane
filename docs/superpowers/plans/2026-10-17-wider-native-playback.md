@@ -43,6 +43,8 @@
 - [ ] **Step 2: Run the check against the already-built ffmpeg** — `scripts/check-ffmpeg.sh`. Expected: PASS (the working-tree ffmpeg was built with libxml2 in the spike).
 - [ ] **Step 3: Commit** the `build-ffmpeg.sh` + `check-ffmpeg.sh` changes — `build: ffmpeg with libxml2 for DASH`.
 
+**Built:** f14cecc.
+
 ### Task 2: Cap representation selection at ≤1080p, preferring a copyable codec
 
 **Files:**
@@ -81,6 +83,8 @@
 - [ ] **Step 4: Run to verify they pass.** Also run the existing HLS variant test (`playsTheBestVariantOfAMasterPlaylist` in the media suite) to confirm no regression.
 - [ ] **Step 5: Commit** — `feat(core): cap variant selection at 1080p, preferring a copyable codec`.
 
+**Built:** 826b27d. When nothing is within the cap, it keeps the smallest one over it.
+
 ### Task 3: Accept DASH end to end
 
 **Files:**
@@ -104,6 +108,8 @@
 - [ ] **Step 4: Run to verify they pass**, then the full `scripts/test-core.sh`.
 - [ ] **Step 5: Commit** — `feat: play DASH streams natively`.
 
+**Built:** 1dbad8e, then 256e5b6 for scheme-relative `xlink:href` in manifests. An encrypted `.mpd` is refused when it's probed, before ffmpeg copies anything.
+
 ### Task 4: yt-dlp returns DASH as one manifest input
 
 **Files:**
@@ -122,6 +128,8 @@
 - [ ] **Step 3: Implement.** Drop `[protocol!*=dash]` from `readable`. In `YtDlpOutput`, when the chosen formats are DASH, emit one input from the common `manifest_url` (dedupe by it) marked `.dash`, rather than one input per representation. Add the DASH fixture (hand-written from yt-dlp's documented fields, as the others are — no network).
 - [ ] **Step 4: Run to verify they pass**, then the full suite.
 - [ ] **Step 5: Commit** — `feat: let yt-dlp return DASH, fed to ffmpeg as one manifest`.
+
+**Built:** c67c252.
 
 ### Task 5: Toolbar button falls back to yt-dlp on any site
 
@@ -143,6 +151,8 @@
 - [ ] **Step 4: Run to verify they pass** (both suites); regenerate any snapshot the popup change touches.
 - [ ] **Step 5: Commit** — `feat: the toolbar button can try any page through yt-dlp`.
 
+**Built:** 7302313. A page that yt-dlp can't make a video of fails with why, but it replaces what was playing first, as a copied link does (Review Focus 4 assumed otherwise).
+
 ### Task 6: Carry the Authorization header
 
 **Files:**
@@ -161,6 +171,8 @@
 - [ ] **Step 3: Implement** the two allow-list additions.
 - [ ] **Step 4: Run to verify they pass** (both suites); confirm no new logging of the header (redaction already covers it).
 - [ ] **Step 5: Commit** — `feat: carry the Authorization header to same-site stream fetches`.
+
+**Built:** 8b371a5.
 
 ### Task 7: Docs and Sony rows
 

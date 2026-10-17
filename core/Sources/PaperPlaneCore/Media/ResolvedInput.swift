@@ -12,7 +12,7 @@ public enum ManifestKind: Equatable, Sendable {
 public struct ResolvedInput: Equatable, Sendable {
     public struct Input: Equatable, Sendable {
         public var url: URL
-        /// HTTP headers the site expects (cookies, referer, user agent). Never logged.
+        /// HTTP headers the site expects (cookies, referer, user agent, authorization). Never logged.
         public var headers: [String: String]
         /// Whether the input is an HLS playlist or a DASH manifest, rather than a video file.
         public var manifest: ManifestKind

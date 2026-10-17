@@ -56,7 +56,8 @@ public struct PlayRequest: Equatable, Sendable {
     public enum Source: Equatable, Sendable {
         /// A stream the extension found, with the headers the site expects.
         case stream(URL, Format, headers: [String: String])
-        /// A page for yt-dlp to resolve (YouTube), with the site's cookies.
+        /// A page for yt-dlp to resolve, on any site, with the headers the extension sent. Only the
+        /// Cookie is used, and the extension sends one for YouTube pages only.
         case page(URL, headers: [String: String])
     }
 

@@ -44,7 +44,7 @@ MKVs, whatever's playing in Chrome or Brave, YouTube, a link you copied. If your
 
 Plenty of TVs have AirPlay built in now. macOS will mirror your screen to one, and QuickTime and Safari can send some videos, but an MKV, a film with a DTS soundtrack or the video playing in Chrome won't go.
 
-Paper Plane sends them anyway. It works out what your TV can't play, converts only that part with ffmpeg while the video plays, and streams it from your Mac using macOS's own AirPlay. Video that's already H.264 or HEVC is copied rather than re-encoded, so it starts in a couple of seconds and looks exactly like the file.
+Paper Plane sends them anyway. It works out what your TV can't play, converts only that part with ffmpeg while the video plays, and streams it from your Mac using macOS's own AirPlay. Video that's already H.264 or HEVC is copied rather than re-encoded, so it starts in a couple of seconds and looks exactly like the file. Web video comes the same way, whether the site streams it as HLS or DASH.
 
 If you've used Beamer, it's the same idea, free and open source.
 
@@ -93,7 +93,11 @@ The speech-bubble button switches the audio track and the subtitles, including s
 
 ### Videos from Chrome and Brave
 
-Play a video on a site and click the paper plane in the toolbar. It's grey until it finds a video. When it's sure which one you're watching, a click sends it; when it isn't, it shows a count and lets you choose. Paper Plane starts where the browser was, and the browser's video pauses. Live streams play live. Sites that only offer DASH streams come in a later version.
+Play a video on a site and click the paper plane in the toolbar. It's grey until it finds a video. When it's sure which one you're watching, a click sends it; when it isn't, it shows a count and lets you choose. Paper Plane starts where the browser was, and the browser's video pauses. Live streams play live. HLS, DASH and plain video files all play. A site with several qualities plays at up to 1080p, in a form the TV takes without converting when there is one.
+
+If the button stays grey, click it anyway. Its popup offers to try the page: Paper Plane asks yt-dlp for the video, on any site, not only YouTube. If yt-dlp can't find one, the remote says so. A page tried this way doesn't carry the browser's login, so a video that needs you signed in won't come this way (YouTube is the exception).
+
+Some streams are locked on purpose. Video protected by DRM or a similar scheme still can't play, and when Paper Plane can tell, it says "This video is protected" instead of sending the TV noise.
 
 <p align="center">
   <picture>
@@ -104,13 +108,13 @@ Play a video on a site and click the paper plane in the toolbar. It's grey until
 
 ### YouTube and copied links
 
-Copy a link to a video on YouTube or most other video sites, then choose Play Copied Link from the menu bar or under the remote's drop zone, or press ⌘V in the remote. A link dragged from the browser's address bar onto the remote or the menu bar icon plays too. On YouTube from the extension, Paper Plane gets the video signed in as you are in the browser.
+Copy a link to a video on YouTube or most other video sites, then choose Play Copied Link from the menu bar or under the remote's drop zone, or press ⌘V in the remote. A link dragged from the browser's address bar onto the remote or the menu bar icon plays too. On YouTube from the extension, Paper Plane gets the video signed in as you are in the browser. A copied link carries no cookie, so a video that needs you signed in may not play from one.
 
 Paper Plane finds the video on a page with [yt-dlp](https://github.com/yt-dlp/yt-dlp). It ships a copy and keeps it up to date. Recent versions of yt-dlp need a JavaScript runtime for YouTube, so if YouTube videos fail or play at low quality, install Deno: `brew install deno`.
 
 ### Made to fit your TV
 
-Paper Plane was tested on a Sony XBR-55X950G, which won't take Dolby surround over AirPlay, so surround soundtracks become stereo by default. Settings has three switches for TVs that differ: surround sound, HDR to SDR, and drawing subtitles into the picture.
+Paper Plane was tested on a Sony XBR-55X950G, which won't take Dolby surround over AirPlay, so surround soundtracks become stereo by default. Settings has three switches for TVs that differ: surround sound, HDR to SDR, and drawing subtitles into the picture. DASH playback, the toolbar's Try this page and streams that need an `Authorization` header came after that test; their rows in [docs/sony-test-results.md](docs/sony-test-results.md) are still waiting to be run on the TV.
 
 <p align="center">
   <picture>
@@ -135,7 +139,7 @@ The full design is in [docs/superpowers/specs/2026-10-15-paper-plane-design.md](
 
 Paper Plane has no accounts, no analytics and no servers of its own. It connects to three places: the site a video comes from, your TV, and GitHub, to update yt-dlp.
 
-- The extension passes along the site's cookies for the video you send. Paper Plane sends them only to that site, only to fetch that video, and never saves them. YouTube's cookie reaches yt-dlp in memory, never on its command line or in a file.
+- The extension passes along the site's cookies for the video you send, and the `Authorization` header when the stream's request had one, as some self-hosted servers need. Paper Plane sends them only to the stream's own site, only to fetch that video, and never saves them. A stream whose pieces sit on another host doesn't get them there. YouTube's cookie reaches yt-dlp in memory, never on its command line or in a file.
 - yt-dlp updates come from yt-dlp's GitHub releases, at most once a day and whenever a page fails, and each download is checked against the release's SHA-256 sums.
 - Logs leave out cookies, passwords and your home folder's path.
 

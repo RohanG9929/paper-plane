@@ -62,7 +62,7 @@ Milestone 4 is "Bundled yt-dlp, the update mechanism, the `kind: "page"` path, t
 
 ## Where pages come from
 
-10. **From the browser, only YouTube pages** go to yt-dlp: `https` on `youtube.com`, its subdomains or `youtu.be`, as the extension sends them (§5.1). The app refuses any other page from the bridge, as defence in depth: "Paper Plane takes only YouTube pages from the browser." *Cost if wrong:* none. The extension sends nothing else.
+10. **From the browser, only YouTube pages** go to yt-dlp *(superseded 2026-10-17: the app now takes a page from any site and fails with why when yt-dlp can't make a video of it; see the wider-native-playback design, §4.2)*: `https` on `youtube.com`, its subdomains or `youtu.be`, as the extension sends them (§5.1). The app refuses any other page from the bridge, as defence in depth: "Paper Plane takes only YouTube pages from the browser." *Cost if wrong:* none. The extension sends nothing else.
 11. **Play Copied Link** (the spec's "Paste a link", named for what it does; design audit, 2026-10-16):
     - **Where:** a menu item (⌘V) and a button under the drop zone. A web link dropped on the window or the menu bar icon does the same.
     - **What it takes:** any `http` or `https` link, trimmed. A link whose path ends in `.m3u8` plays directly as HLS, and `.mp4`, `.m4v`, `.mov`, `.webm` or `.mkv` as a file. Anything else goes through yt-dlp. A video file copied in Finder plays as if dropped.

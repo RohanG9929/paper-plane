@@ -4,8 +4,8 @@ import os
 
 /// ffmpeg's only way to the web (security review, Plan 4). ffmpeg reads a web stream from this
 /// proxy on 127.0.0.1, which fetches each request itself:
-/// - the site's cookie, referer and origin go only to the stream's own site, never to hosts its
-///   playlist names elsewhere;
+/// - the site's cookie, referer, origin and authorization go only to the stream's own site, never
+///   to hosts its playlist names elsewhere;
 /// - nothing on this Mac or the local network is fetched unless the stream itself is there;
 /// - each playlist's addresses point back here, and redirects go back to ffmpeg rewritten, so
 ///   every hop passes the same checks.

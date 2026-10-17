@@ -325,6 +325,29 @@ struct PlaybackControllerMediaTests {
         await controller.shutDown()
     }
 
+    /// Starting another video — a new one, or the same page again, as the browser extension
+    /// sends — must keep the already-chosen TV. The player's item is swapped straight to the next
+    /// one, never cleared to nil in between: clearing it ends external playback and drops the
+    /// AirPlay route, so the new video would sit at "Choose your TV to start" until the TV was
+    /// picked again. The route itself needs a real TV; this covers the lifecycle decision that
+    /// used to drop it.
+    @Test func aSecondVideoKeepsTheChosenTVInsteadOfClearingThePlayer() async throws {
+        let controller = try await readyController()
+        controller.externalPlaybackChanged(active: true)
+        #expect(controller.phase == .onTV)
+        let firstItem = try #require(controller.player.currentItem)
+
+        controller.play([UITestMedia.file("h264_aac.mp4")]) // the extension sends another video
+        #expect(controller.phase == .preparing)
+        #expect(controller.player.currentItem === firstItem, "the item is kept so the AirPlay route survives")
+
+        await PlaybackControllerTests.eventually { controller.phase != .preparing }
+        #expect(controller.phase == .waitingForTV) // no real TV in the test, so it can't flip to .onTV
+        let secondItem = try #require(controller.player.currentItem) // swapped in place, never to nil
+        #expect(secondItem !== firstItem)
+        await controller.shutDown()
+    }
+
     /// AVPlayer may pause by itself as the TV drops out, before the controller hears of it.
     /// That isn't the user pausing, so playback resumes when the TV is back.
     @Test func aTVThatDropsOutWhilePlayingResumesPlaying() async throws {

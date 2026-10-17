@@ -93,9 +93,9 @@ The speech-bubble button switches the audio track and the subtitles, including s
 
 ### Videos from Chrome and Brave
 
-Play a video on a site and click the paper plane in the toolbar. It's grey until it finds a video. When it's sure which one you're watching, a click sends it; when it isn't, it shows a count and lets you choose. Paper Plane starts where the browser was, and the browser's video pauses. Live streams play live. HLS, DASH and plain video files all play. A site with several qualities plays at up to 1080p, in a form the TV takes without converting when there is one.
+Play a video on a site and click the paper plane in the toolbar. It's grey until it finds a video. When it's sure which one you're watching, a click sends it; when it isn't, it shows a count and lets you choose. Paper Plane starts where the browser was, and the browser's video pauses. Live streams play live. HLS, DASH and plain video files all play. A site with several qualities plays at up to 1080p, preferring a form the TV takes without converting among options of the same resolution.
 
-If the button stays grey, click it anyway. Its popup offers to try the page: Paper Plane asks yt-dlp for the video, on any site, not only YouTube. If yt-dlp can't find one, the remote says so. A page tried this way doesn't carry the browser's login, so a video that needs you signed in won't come this way (YouTube is the exception).
+If the button stays grey, click it anyway. Its popup offers to try the page: Paper Plane asks yt-dlp for the video, wherever yt-dlp has support, not only YouTube. If yt-dlp can't find one, the remote says so. A page tried this way doesn't carry the browser's login, so a video that needs you signed in won't come this way (YouTube is the exception).
 
 Some streams are locked on purpose. Video protected by DRM or a similar scheme still can't play, and when Paper Plane can tell, it says "This video is protected" instead of sending the TV noise.
 

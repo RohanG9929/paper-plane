@@ -100,6 +100,25 @@ struct PagePlaybackTests {
         controller.stop()
     }
 
+    /// Defence in depth: the button can try any page, but only a YouTube page's cookie is handed
+    /// to yt-dlp. A non-YouTube page carrying a cookie reaches yt-dlp with none; a YouTube page's
+    /// is passed on.
+    @Test func onlyAYouTubePagesCookieReachesYtDlp() async throws {
+        let service = FakeYtDlpService([FakeYtDlpService.hangs])
+        let controller = Self.controller(service)
+        let nonYouTube = try Self.page(URL(string: "https://videos.example/watch?v=1")!, cookie: "SID=secret")
+        Task { await controller.play(nonYouTube) }
+        await PlaybackControllerTests.eventually { service.calls.count == 1 }
+        #expect(service.calls.first?.cookie == nil) // withheld from a non-YouTube page
+        controller.stop()
+
+        let youtube = try Self.page(cookie: "SID=secret") // the default URL is a YouTube watch page
+        Task { await controller.play(youtube) }
+        await PlaybackControllerTests.eventually { service.calls.count == 2 }
+        #expect(service.calls.last?.cookie == "SID=secret") // a YouTube page's is passed on
+        controller.stop()
+    }
+
     /// A YouTube page, in any of its forms, still goes to yt-dlp.
     @Test func aYouTubePageInAnyFormGoesToYtDlp() async throws {
         let service = FakeYtDlpService([FakeYtDlpService.hangs])

@@ -77,6 +77,19 @@ struct PlayRequestTests {
         #expect(request.input == nil) // pages need yt-dlp
     }
 
+    /// Authorization is a stream-only header: a page carries only Cookie and User-Agent to yt-dlp,
+    /// never an Authorization (nor Referer/Origin). A stream keeps its Authorization
+    /// (authorizationIsKept).
+    @Test func aPageKeepsOnlyCookieAndUserAgent() throws {
+        let request = try PlayRequest.decode(Self.json("""
+            {"type":"play","v":1,"source":{"kind":"page","url":"https://www.youtube.com/watch?v=x",
+             "headers":{"Authorization":"Bearer abc","Cookie":"SID=1","User-Agent":"Mozilla/5.0",
+             "Referer":"https://site.example/","Origin":"https://site.example"}}}
+            """))
+        #expect(request.source == .page(URL(string: "https://www.youtube.com/watch?v=x")!,
+                                        headers: ["Cookie": "SID=1", "User-Agent": "Mozilla/5.0"]))
+    }
+
     @Test(arguments: [
         #"{"type":"pause","v":1,"source":{"kind":"stream","url":"https://a.example/v.mp4","format":"progressive"}}"#,
         #"{"type":"play","v":2,"source":{"kind":"stream","url":"https://a.example/v.mp4","format":"progressive"}}"#,

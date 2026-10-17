@@ -317,8 +317,11 @@ public final class PlaybackController {
             let input = ResolvedInput(inputs: [.init(url: url, headers: headers, manifest: format.manifest)], title: request.title)
             return await begin(title: input.title, from: .browser) { await self.start(input, at: request.startAt) }.value
         case .page(let url, let headers):
+            // Only a YouTube page's cookie reaches yt-dlp. The button can try any site now, so a
+            // non-YouTube page's cookie is withheld here (defence in depth).
+            let cookie = Links.isYouTubePage(url) ? headers["Cookie"] : nil
             return await begin(title: request.title, from: .browser) {
-                await self.start(page: url, cookie: headers["Cookie"], title: request.title, at: request.startAt)
+                await self.start(page: url, cookie: cookie, title: request.title, at: request.startAt)
             }.value
         }
     }

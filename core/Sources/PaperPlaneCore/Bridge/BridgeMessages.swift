@@ -56,8 +56,9 @@ public struct PlayRequest: Equatable, Sendable {
     public enum Source: Equatable, Sendable {
         /// A stream the extension found, with the headers the site expects.
         case stream(URL, Format, headers: [String: String])
-        /// A page for yt-dlp to resolve, on any site, with the headers the extension sent. Only the
-        /// Cookie is used, and the extension sends one for YouTube pages only.
+        /// A page for yt-dlp to resolve, on any site, with the headers the extension sent, kept to
+        /// Cookie and User-Agent (Authorization is a stream-only header). Only the Cookie is used,
+        /// and the extension sends one for YouTube pages only.
         case page(URL, headers: [String: String])
     }
 
@@ -96,7 +97,9 @@ public struct PlayRequest: Equatable, Sendable {
             }
             decodedSource = .stream(url, format, headers: headers)
         case "page":
-            decodedSource = .page(url, headers: headers)
+            // A page goes to yt-dlp, not the stream proxy: it carries only Cookie and User-Agent.
+            // Authorization is a stream-only header and is never kept for a page.
+            decodedSource = .page(url, headers: headers.filter { ["Cookie", "User-Agent"].contains($0.key) })
         default:
             throw Invalid(reason: "unknown source")
         }

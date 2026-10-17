@@ -155,7 +155,7 @@ These rows need the owner at the TV or in their own browser.
 | B8 | Quit Paper Plane, then click the paper plane on a playing video | Paper Plane starts within a few seconds and takes the video | Needs the owner in their browser |
 | B9 | In Brave, repeat B1 | As B1 (the app installs the helper for Brave once Brave has been opened) | Needs the owner at the TV |
 | B10 | Leave a site's video for an hour or more, then send it | Either it plays, or the remote says "The site stopped the stream — reload the page, then click Paper Plane again" (its link expired) | Needs the owner at the TV |
-| B11 | Note any site whose video the button never finds, and any that fails | Worth a bug report each: Paper Plane doesn't offer DASH-only sites yet, and players that hide their `<video>` (in a shadow root) don't pause or start where they were | Needs the owner in their browser |
+| B11 | Note any site whose video the button never finds, and any that fails | Worth a bug report each: players that hide their `<video>` (in a shadow root) don't pause or start where they were | Needs the owner in their browser |
 
 ## Plan 5: YouTube and copied links on the Sony
 

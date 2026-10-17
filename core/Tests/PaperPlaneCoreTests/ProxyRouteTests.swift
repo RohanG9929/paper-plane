@@ -143,6 +143,8 @@ struct ProxyRouteTests {
                 <SegmentURL media='//evil.example/single.m4s'/>
                 <SegmentURL media = "//evil.example/spaced.m4s"/>
                 <SegmentURL media='/evil/relative.m4s' initialization = '//evil.example/init.m4s'/>
+                <SegmentURL media="//evil.example/a'b.m4s"/>
+                <SegmentURL media='//evil.example/a"b.m4s'/>
               </SegmentList></Representation></AdaptationSet></Period>
             </MPD>
             """
@@ -154,6 +156,10 @@ struct ProxyRouteTests {
         #expect(rewritten.contains(#"media='\#(proxied)single.m4s'"#)) // single-quoted `//host`
         #expect(rewritten.contains(#"media = "\#(proxied)spaced.m4s""#)) // spaced `=`, double-quoted
         #expect(rewritten.contains(#"initialization = '\#(proxied)init.m4s'"#)) // spaced `=`, single-quoted
+        // A value may legally hold the other quote: a double-quoted value with an apostrophe, and a
+        // single-quoted value with a double quote, are both still rewritten (each excludes only its own).
+        #expect(rewritten.contains(#"media="\#(proxied)a'b.m4s""#))
+        #expect(rewritten.contains(#"media='\#(proxied)a"b.m4s'"#))
         // A single-quoted `/`-relative value maps to the proxy on the manifest's own host.
         #expect(rewritten.contains(#"media='/t0k3n/0/https/media.example.com/evil/relative.m4s'"#))
         // Nothing names the external host except by way of the proxy.

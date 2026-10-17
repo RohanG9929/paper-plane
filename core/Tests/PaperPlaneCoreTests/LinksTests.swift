@@ -17,17 +17,25 @@ struct LinksTests {
 
     @Test func aLinkToAPlaylistOrAFileIsPlayedAsItIs() throws {
         let hls = try #require(Links.direct(URL(string: "https://cdn.example.com/live/index.M3U8?token=1")!))
-        #expect(hls.inputs.map(\.isHLS) == [true])
+        #expect(hls.inputs.map(\.manifest) == [.hls])
         #expect(hls.title == "index")
         for name in ["film.mp4", "film.m4v", "film.mov", "film.webm", "film.mkv"] {
             let file = try #require(Links.direct(URL(string: "https://cdn.example.com/\(name)")!))
-            #expect(file.inputs.map(\.isHLS) == [false])
+            #expect(file.inputs.map(\.manifest) == [.none])
             #expect(file.title == "film")
         }
         #expect(Links.direct(URL(string: "https://cdn.example.com/films/A%20film.mp4")!)?.title == "A film")
         #expect(Links.direct(URL(string: "https://www.youtube.com/watch?v=1")!) == nil)
         #expect(Links.direct(URL(string: "https://vimeo.com/76979871")!) == nil)
-        #expect(Links.direct(URL(string: "https://example.com/manifest.mpd")!) == nil, "DASH goes to yt-dlp, which won't pick it")
+    }
+
+    /// A link straight to a DASH manifest plays as it is, read by ffmpeg like an HLS playlist.
+    @Test func aDotMpdLinkPlaysAsDash() throws {
+        let dash = try #require(Links.direct(URL(string: "https://cdn.example.com/video/x.mpd?token=1")!))
+        #expect(dash.inputs.map(\.manifest) == [.dash])
+        #expect(dash.inputs.map(\.url.absoluteString) == ["https://cdn.example.com/video/x.mpd?token=1"])
+        #expect(dash.title == "x")
+        #expect(try #require(Links.direct(URL(string: "https://cdn.example.com/video/X.MPD")!)).inputs.map(\.manifest) == [.dash])
     }
 
     /// Milestone 4, decision 10: what the browser may send as a page.

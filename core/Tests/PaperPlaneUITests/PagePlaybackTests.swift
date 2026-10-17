@@ -258,8 +258,22 @@ struct PagePlaybackTests {
         controller.playLink("https://cdn.example.com/films/Big%20Buck%20Bunny.MP4")
         await PlaybackControllerTests.eventually { probed.withLock { $0 }.count == 2 }
         let inputs = probed.withLock { $0 }
-        #expect(inputs.map { $0.inputs.map(\.isHLS) } == [[true], [false]])
+        #expect(inputs.map { $0.inputs.map(\.manifest) } == [[.hls], [.none]])
         #expect(inputs.map(\.title) == ["index", "Big Buck Bunny"])
+        #expect(service.calls.isEmpty)
+        controller.stop()
+    }
+
+    /// A link straight to a DASH manifest needs no yt-dlp either.
+    @Test func aCopiedLinkToADashManifestPlaysDirectly() async throws {
+        let service = FakeYtDlpService([FakeYtDlpService.hangs])
+        let probed = OSAllocatedUnfairLock<[ResolvedInput]>(initialState: [])
+        let controller = Self.controller(service, probed: probed)
+        controller.playLink("https://cdn.example.com/video/Big%20Buck%20Bunny.mpd?token=1")
+        await PlaybackControllerTests.eventually { probed.withLock { $0 }.count == 1 }
+        let inputs = probed.withLock { $0 }
+        #expect(inputs.map { $0.inputs.map(\.manifest) } == [[.dash]])
+        #expect(inputs.map(\.title) == ["Big Buck Bunny"])
         #expect(service.calls.isEmpty)
         controller.stop()
     }

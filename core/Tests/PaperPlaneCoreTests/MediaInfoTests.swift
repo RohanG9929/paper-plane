@@ -104,4 +104,37 @@ struct MediaInfoTests {
         #expect(kept.video.map(\.ref.index) == [2])
         #expect(kept.audio.map(\.ref.index) == [3, 4])
     }
+
+    // MARK: - DASH audio
+
+    static func audio(_ language: String, bandwidth: Int, index: Int, channels: Int = 2) -> AudioTrack {
+        AudioTrack(ref: TrackRef(index: index), codec: .aac, channels: channels, language: language, title: nil,
+                   isDefault: false, variant: bandwidth)
+    }
+
+    /// A DASH manifest lists audio apart from the video: every audio representation has a
+    /// bandwidth of its own, never a video's, so audio can't be matched to the chosen video by it.
+    /// Each language's best representation is kept, so the TV hears the manifest's sound, once.
+    @Test func aDashManifestKeepsEachLanguagesBestAudio() {
+        let info = Self.media(Self.multiRep.video, [
+            Self.audio("eng", bandwidth: 64_000, index: 4),
+            Self.audio("eng", bandwidth: 128_000, index: 5),
+            Self.audio("fra", bandwidth: 128_000, index: 6),
+            Self.audio("fra", bandwidth: 64_000, index: 7),
+        ])
+        let kept = info.keepingBestVariant(audioIsSeparate: true)
+        #expect(kept.video.map(\.ref.index) == [1])
+        #expect(kept.audio.map(\.ref.index) == [5, 6])
+        #expect(info.keepingBestVariant().audio.isEmpty) // an HLS master ties audio to its variant, so none here
+    }
+
+    @Test func aDashManifestKeepsAudioThatDiffersInChannelsOrLanguage() {
+        let info = Self.media(Self.multiRep.video, [
+            Self.audio("eng", bandwidth: 128_000, index: 4),
+            Self.audio("eng", bandwidth: 384_000, index: 5, channels: 6),
+            AudioTrack(ref: TrackRef(index: 6), codec: .aac, channels: 2, language: nil, title: nil, isDefault: false,
+                       variant: 96_000),
+        ])
+        #expect(info.keepingBestVariant(audioIsSeparate: true).audio.map(\.ref.index) == [4, 5, 6])
+    }
 }

@@ -43,7 +43,7 @@ struct PlayRequestTests {
         #expect(headers == ["Cookie": "session=1", "Referer": "https://site.example/watch",
                             "User-Agent": "Mozilla/5.0", "Origin": "https://site.example"])
         #expect(request.input?.inputs.first?.headers.count == 4)
-        #expect(request.input?.inputs.first?.isHLS == true)
+        #expect(request.input?.inputs.first?.manifest == .hls)
         #expect(request.input?.title == "A film")
     }
 

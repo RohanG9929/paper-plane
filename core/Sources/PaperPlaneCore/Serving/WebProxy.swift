@@ -85,7 +85,7 @@ public final class WebProxy: Sendable {
         route.withLock { $0 = proxyRoute }
         let inputs = original.inputs.enumerated().map { index, item in
             guard !item.url.isFileURL, let proxied = proxyRoute.proxied(item.url, input: index) else { return item }
-            return ResolvedInput.Input(url: proxied, isHLS: item.isHLS)
+            return ResolvedInput.Input(url: proxied, manifest: item.manifest)
         }
         return WebProxy(input: ResolvedInput(inputs: inputs, title: original.title, page: original.page), listener: listener,
                         refusals: refusals)

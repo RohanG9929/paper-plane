@@ -90,6 +90,39 @@ struct ProxyRouteTests {
         #expect(rewritten.contains("<BaseURL>/t0k3n/2/https/other.example.com/x/</BaseURL>"))
     }
 
+    /// A DASH manifest can name any host: a BaseURL, a remote element's xlink:href, a new
+    /// manifest's Location. Every such address reaches ffmpeg as the proxy's, so ffmpeg can't be
+    /// steered to fetch an external host itself (the proxy applies its checks to what it relays).
+    /// ffmpeg's DASH demuxer follows no xlink or Location at all; this holds either way.
+    @Test func aDASHManifestCantSteerFFmpegToAnExternalHost() {
+        let manifest = """
+            <?xml version="1.0"?>
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <Location>https://evil.example/new.mpd</Location>
+              <BaseURL>https://evil.example/seg/</BaseURL>
+              <Period xlink:href="https://evil.example/part.mpd" xlink:actuate="onLoad">
+                <AdaptationSet><Representation id="1">
+                  <BaseURL>//evil.example/rep/</BaseURL>
+                  <SegmentList><SegmentURL media="https://evil.example/s1.m4s"/></SegmentList>
+                </Representation></AdaptationSet>
+              </Period>
+            </MPD>
+            """
+        let rewritten = ManifestRewriter.rewrite(manifest, kind: .dash, from: URL(string: "https://media.example.com/v/m.mpd")!,
+                                                 input: 0, route: Self.route)
+        let proxied = "http://127.0.0.1:5000/t0k3n/0/https/evil.example/"
+        #expect(rewritten.contains("<Location>\(proxied)new.mpd</Location>"))
+        #expect(rewritten.contains("<BaseURL>\(proxied)seg/</BaseURL>"))
+        #expect(rewritten.contains(#"xlink:href="\#(proxied)part.mpd""#))
+        #expect(rewritten.contains(#"media="\#(proxied)s1.m4s""#))
+        #expect(rewritten.contains("<BaseURL>/t0k3n/0/https/evil.example/rep/</BaseURL>")) // on the proxy's own host
+        // Nothing names the external host except by way of the proxy.
+        let direct = rewritten.replacingOccurrences(of: "/t0k3n/0/https/evil.example/", with: "")
+        #expect(!direct.contains("evil.example"))
+        // The namespaces are declarations, not addresses to fetch.
+        #expect(rewritten.contains(#"xmlns:xlink="http://www.w3.org/1999/xlink""#))
+    }
+
     @Test func recognisesManifestsByTypeNameOrContent() {
         let url = URL(string: "https://cdn.example.com/v/playlist")!
         #expect(ManifestRewriter.kind(contentType: "application/vnd.apple.mpegurl", url: url, start: Data()) == .hls)

@@ -174,6 +174,35 @@ struct PlaybackControllerTests {
         #expect(await environment.updateYtDlpIfDue() == false)
     }
 
+    /// The bundled ffmpeg reads DASH (built with libxml2), so a DASH stream from the browser is
+    /// played like an HLS one, not turned away.
+    @Test func aDashStreamIsNoLongerRefused() throws {
+        let url = URL(string: "https://cdn.example/v/manifest.mpd")!
+        for format in ["dash", "hls", "progressive"] {
+            let request = try BrowserPlaybackTests.request(url, format: format)
+            #expect(PlaybackController.refusal(of: request) == nil, "\(format)")
+        }
+    }
+
+    /// What the controller hands ffmpeg for a stream from the browser: the manifest's kind
+    /// survives the web proxy, so ffmpeg is told what it's reading.
+    @Test func aDashStreamFromTheBrowserReachesFFmpegAsDash() async throws {
+        let probed = OSAllocatedUnfairLock<[ResolvedInput.Input]>(initialState: [])
+        let environment = Self.environment { _, input in
+            probed.withLock { $0 += input.inputs }
+            throw MediaProbeError.unreadableOutput
+        }
+        let controller = PlaybackController(environment: environment, showsWelcome: false, welcomeSeen: {})
+        let reply = await controller.play(try BrowserPlaybackTests.request(
+            URL(string: "https://cdn.example/v/manifest.mpd")!, format: "dash"))
+        #expect(reply != .failed("Paper Plane can't play this site's kind of stream (DASH) yet."))
+        #expect(probed.withLock { $0.map(\.manifest) } == [.dash])
+        let input = try #require(probed.withLock { $0.first })
+        #expect(input.url.host() == "127.0.0.1") // read through the proxy, never the site itself
+        #expect(!input.ffmpegOptions.contains("-extension_picky"))
+        controller.stop()
+    }
+
     @Test func openingAVideoRemembersTheWelcomeWasSeen() {
         var seen = 0
         let controller = PlaybackController(environment: Self.environment(probe: Self.preparesForever),
@@ -853,10 +882,21 @@ enum UITestMedia {
 
     /// Whether the ffmpeg under test has a filter, e.g. `subtitles` (libass).
     static func ffmpegHasFilter(_ name: String) async -> Bool {
+        await ffmpegListing("-filters", has: name)
+    }
+
+    /// Whether the ffmpeg under test has a demuxer, e.g. `dash` (which needs libxml2: Homebrew's
+    /// ffmpeg hasn't it, the bundled one has).
+    static func ffmpegHasDemuxer(_ name: String) async -> Bool {
+        await ffmpegListing("-demuxers", has: name)
+    }
+
+    /// Whether ffmpeg's `listing` (`-filters`, `-demuxers`) has a line for `name`: its second word.
+    private static func ffmpegListing(_ listing: String, has name: String) async -> Bool {
         guard let tools = ToolPaths.locate() else { return false }
         let process = Process()
         process.executableURL = tools.ffmpeg
-        process.arguments = ["-hide_banner", "-filters"]
+        process.arguments = ["-hide_banner", listing]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice

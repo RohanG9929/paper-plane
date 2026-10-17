@@ -80,12 +80,43 @@ struct BrowserPlaybackTests {
         await controller.shutDown()
     }
 
-    /// DASH needs an ffmpeg built with libxml2, which Paper Plane's isn't yet.
-    @Test func dashIsTurnedAwayPlainly() async throws {
+    /// A site's DASH manifest through the proxy and the real ffmpeg, as the extension sends it:
+    /// the TV gets one representation, copied, with its sound.
+    @Test(.enabled("Needs an ffmpeg built with libxml2 (DASH)") { await UITestMedia.ffmpegHasDemuxer("dash") })
+    func aDashStreamPlaysThroughTheProxyWithAudio() async throws {
+        let server = try await UITestServer(directory: try await UITestServer.dash())
+        defer { server.stop() }
         let controller = Self.controller(try PlaybackControllerMediaTests.environment())
-        let reply = await controller.play(try Self.request(URL(string: "https://a.example/m.mpd")!, format: "dash"))
-        #expect(reply == .failed("Paper Plane can't play this site's kind of stream (DASH) yet."))
-        #expect(controller.phase == .idle)
+        let reply = await controller.play(try Self.request(server.url("index.mpd"), format: "dash"))
+        #expect(reply == .ok)
+        #expect(controller.phase == .waitingForTV)
+        #expect(controller.detail == "720p · 10 s")
+        let plan = try #require(controller.stream?.plan)
+        #expect(plan.videoAction == .copy(.h264))
+        #expect(plan.audioAction == .copy(.aac))
+        #expect(controller.audioTracks.count == 1)
+        await PlaybackControllerTests.eventually { controller.player.currentItem?.status == .readyToPlay }
+        #expect(controller.player.currentItem?.status == .readyToPlay)
+        await controller.shutDown()
+    }
+
+    /// A DASH manifest ffmpeg can't decrypt (CENC, no key) fails plainly: the browser is told, and
+    /// the controller is left failed, rather than passing the TV samples that are only noise.
+    @Test(.enabled("Needs an ffmpeg built with libxml2 (DASH)") { await UITestMedia.ffmpegHasDemuxer("dash") },
+          .timeLimit(.minutes(1)))
+    func anEncryptedManifestFailsClearly() async throws {
+        let server = try await UITestServer(directory: try await UITestServer.dash(encrypted: true))
+        defer { server.stop() }
+        let controller = Self.controller(try PlaybackControllerMediaTests.environment())
+        let reply = await controller.play(try Self.request(server.url("index.mpd"), format: "dash"))
+        guard case .failed(let message) = reply else {
+            Issue.record("an encrypted stream was taken: \(reply)")
+            return
+        }
+        #expect(message == "This video is protected, so Paper Plane can't play it.")
+        #expect(message == PlaybackError.message(for: MediaProbeError.protectedContent, origin: .browser))
+        #expect(controller.phase == .failed(message))
+        await controller.shutDown()
     }
 
     /// A link that expires while the video plays stops ffmpeg part-way through.
@@ -201,6 +232,27 @@ final class UITestServer {
 
     func stop() {
         process.terminate()
+    }
+
+    /// The 10-second test clip as a DASH manifest (`index.mpd`) of 2-second fMP4 segments, copied,
+    /// not encoded: two video representations (8-bit and 10-bit H.264) and AAC audio. `encrypted`
+    /// encrypts it with CENC (AES-CTR) under a key nothing here has.
+    static func dash(encrypted: Bool = false) async throws -> URL {
+        let tools = try #require(ToolPaths.locate())
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pp-dash-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var arguments = [
+            "-hide_banner", "-loglevel", "error", "-i", UITestMedia.file("h264_10bit_aac.mkv").path,
+            "-i", UITestMedia.file("h264_aac.mp4").path, "-map", "0:v", "-map", "1:v", "-map", "1:a", "-c", "copy",
+            "-f", "dash", "-seg_duration", "2", "-adaptation_sets", "id=0,streams=v id=1,streams=a",
+        ]
+        if encrypted {
+            arguments += ["-format_options", "encryption_scheme=cenc-aes-ctr:encryption_key=76a6c65c5ea762046bd749a2e632ccbb"
+                + ":encryption_kid=a7e61c373e219033c21091fa607bf3b8"]
+        }
+        let result = try await ProcessRunner.run(tools.ffmpeg, arguments: arguments + [folder.appendingPathComponent("index.mpd").path])
+        try #require(result.status == 0, "ffmpeg failed: \(String(decoding: result.stderr, as: UTF8.self))")
+        return folder
     }
 
     /// The test clip three times over as a live HLS playlist (no #EXT-X-ENDLIST) of 10-second

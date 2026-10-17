@@ -117,7 +117,7 @@ enum YtDlpOutput {
         for (name, value) in format.headers ?? [:] where isToken(name) && !reservedHeaders.contains(name.lowercased()) {
             headers[name] = ResolvedInput.Input.stripLineBreaks(value)
         }
-        return ResolvedInput.Input(url: url, headers: headers, isHLS: (format.protocol ?? "").hasPrefix("m3u8"))
+        return ResolvedInput.Input(url: url, headers: headers, manifest: (format.protocol ?? "").hasPrefix("m3u8") ? .hls : .none)
     }
 
     /// An HTTP header name: letters, digits and a few marks, nothing else.

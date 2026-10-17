@@ -1,5 +1,12 @@
 import Foundation
 
+/// What a web input is, when it names the video's parts rather than being the video: an HLS
+/// playlist or a DASH manifest, whose segments may be named anything and which ffmpeg reads
+/// each its own way.
+public enum ManifestKind: Equatable, Sendable {
+    case none, hls, dash
+}
+
 /// The ffmpeg input(s) for one playback. Web videos can arrive as separate video and
 /// audio streams, so there may be more than one.
 public struct ResolvedInput: Equatable, Sendable {
@@ -7,13 +14,13 @@ public struct ResolvedInput: Equatable, Sendable {
         public var url: URL
         /// HTTP headers the site expects (cookies, referer, user agent). Never logged.
         public var headers: [String: String]
-        /// An HLS playlist, whose segments may be named anything.
-        public var isHLS: Bool
+        /// Whether the input is an HLS playlist or a DASH manifest, rather than a video file.
+        public var manifest: ManifestKind
 
-        public init(url: URL, headers: [String: String] = [:], isHLS: Bool = false) {
+        public init(url: URL, headers: [String: String] = [:], manifest: ManifestKind = .none) {
             self.url = url
             self.headers = headers
-            self.isHLS = isHLS
+            self.manifest = manifest
         }
 
         /// What to pass to ffmpeg's `-i`: a plain path for files, the full URL otherwise.
@@ -41,7 +48,7 @@ public struct ResolvedInput: Equatable, Sendable {
                 let block = remaining.keys.sorted().map { "\($0): \(remaining[$0]!)\r\n" }.joined()
                 options += ["-headers", block]
             }
-            if isHLS {
+            if manifest == .hls { // (ffmpeg's DASH demuxer rejects the option)
                 options += ["-extension_picky", "0"] // segments named anything (the whitelist guards)
             }
             return options

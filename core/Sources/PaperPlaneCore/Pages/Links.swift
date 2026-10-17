@@ -13,12 +13,14 @@ public enum Links {
         return url
     }
 
-    /// A link straight to an HLS playlist or a video file, which ffmpeg reads as it is; nil for a
-    /// page, which yt-dlp has to look at first.
+    /// A link straight to an HLS playlist, a DASH manifest or a video file, which ffmpeg reads as
+    /// it is; nil for a page, which yt-dlp has to look at first.
     public static func direct(_ url: URL) -> ResolvedInput? {
         let title = PlayRequest.fallbackTitle(for: url, otherwise: placeholderTitle(for: url))
-        if url.pathExtension.lowercased() == "m3u8" {
-            return ResolvedInput(inputs: [.init(url: url, isHLS: true)], title: title)
+        switch url.pathExtension.lowercased() {
+        case "m3u8": return ResolvedInput(inputs: [.init(url: url, manifest: .hls)], title: title)
+        case "mpd": return ResolvedInput(inputs: [.init(url: url, manifest: .dash)], title: title)
+        default: break
         }
         return VideoFiles.isVideo(extension: url.pathExtension) ? ResolvedInput(inputs: [.init(url: url)], title: title) : nil
     }

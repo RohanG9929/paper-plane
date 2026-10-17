@@ -36,8 +36,25 @@ struct ResolvedInputTests {
     /// only an HLS input may take the option (ffmpeg rejects it for others).
     @Test func hlsSegmentsMayHaveAnyName() {
         var input = ResolvedInput.Input(url: URL(string: "https://example.com/master.m3u8")!)
-        input.isHLS = true
+        input.manifest = .hls
         #expect(input.ffmpegOptions.suffix(2) == ["-extension_picky", "0"])
+    }
+
+    /// A DASH manifest is read over the web like any input, with the same protocol whitelist and
+    /// the site's headers, but ffmpeg's DASH demuxer rejects `-extension_picky`.
+    @Test func aDashInputIsAWebManifestWithoutExtensionPicky() {
+        let url = URL(string: "https://cdn.example.com/v/manifest.mpd")!
+        let headers = ["Referer": "https://example.com/watch", "User-Agent": "Chrome/140"]
+        let dash = ResolvedInput.Input(url: url, headers: headers, manifest: .dash)
+        #expect(dash.manifest == .dash)
+        #expect(dash.ffmpegOptions == ResolvedInput.Input.webOnly + [
+            "-user_agent", "Chrome/140",
+            "-headers", "Referer: https://example.com/watch\r\n",
+        ])
+        #expect(!dash.ffmpegOptions.contains("-extension_picky"))
+        let hls = ResolvedInput.Input(url: url, headers: headers, manifest: .hls)
+        #expect(hls.ffmpegOptions.suffix(2) == ["-extension_picky", "0"])
+        #expect(ResolvedInput.Input(url: url).manifest == .none)
     }
 
     @Test func headerLineBreaksAreStripped() {

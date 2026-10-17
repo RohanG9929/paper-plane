@@ -53,6 +53,28 @@ struct FFprobeParserTests {
         #expect(file.keepingBestVariant() == file) // a file has no variants
     }
 
+    /// ffprobe's real output for a DASH manifest of CENC-encrypted fMP4 with no key to give it: it
+    /// reads the tracks, and marks each packet it can't decrypt with "Encryption info" side data.
+    static let encryptedJSON = """
+        {"packets": [{"codec_type": "video", "stream_index": 0, "size": "7742",
+                      "side_data_list": [{"side_data_type": "Encryption info"}]}],
+         "streams": [{"index": 0, "codec_type": "video", "codec_name": "h264", "width": 1280, "height": 720}],
+         "format": {"duration": "10.000000"}}
+        """
+
+    /// Samples nothing can decrypt would be copied to the TV as noise: better a plain failure.
+    @Test func protectedStreamsAreRefused() throws {
+        #expect(throws: MediaProbeError.protectedContent) {
+            try FFprobeParser.parse(Data(Self.encryptedJSON.utf8))
+        }
+        let clear = """
+            {"packets": [{"codec_type": "video", "stream_index": 0, "side_data_list": [{"side_data_type": "Skip Samples"}]},
+                         {"codec_type": "audio", "stream_index": 1}],
+             "streams": [{"index": 0, "codec_type": "video", "codec_name": "h264", "width": 1280, "height": 720}]}
+            """
+        #expect(try FFprobeParser.parse(Data(clear.utf8)).video.count == 1)
+    }
+
     @Test func readsFrameRates() throws {
         let json = """
             {"streams": [

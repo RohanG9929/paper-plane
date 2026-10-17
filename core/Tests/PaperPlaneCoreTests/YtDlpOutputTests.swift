@@ -67,7 +67,7 @@ struct YtDlpOutputTests {
             "https://rr3---sn-q4fl6nds.googlevideo.com/videoplayback?expire=1760000000&itag=137&sig=AAA",
             "https://rr3---sn-q4fl6nds.googlevideo.com/videoplayback?expire=1760000000&itag=140&sig=BBB",
         ])
-        #expect(resolved.input.inputs.allSatisfy { !$0.isHLS })
+        #expect(resolved.input.inputs.allSatisfy { $0.manifest == .none })
         #expect(resolved.input.page == page)
         #expect(resolved.startTime == nil)
     }
@@ -80,8 +80,8 @@ struct YtDlpOutputTests {
     @Test func liveStreamIsHLS() throws {
         let resolved = try resolve(YtDlpFixtures.live)
         #expect(resolved.input.inputs.count == 1)
-        #expect(resolved.input.inputs[0].isHLS)
-        #expect(try resolve(YtDlpFixtures.with(protocol: "m3u8", url: "https://example.com/a.m3u8")).input.inputs[0].isHLS)
+        #expect(resolved.input.inputs[0].manifest == .hls)
+        #expect(try resolve(YtDlpFixtures.with(protocol: "m3u8", url: "https://example.com/a.m3u8")).input.inputs[0].manifest == .hls)
     }
 
     /// Playlists aren't played (spec non-goals); a link to one plays its first video.

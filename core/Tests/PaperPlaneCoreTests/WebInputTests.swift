@@ -71,9 +71,47 @@ struct WebInputTests {
         try playlist.write(to: folder.appendingPathComponent("index.m3u8"), atomically: true, encoding: .utf8)
         let server = try await HLSServer(directory: folder)
         defer { server.stop() }
-        let input = ResolvedInput(inputs: [.init(url: server.url("index.m3u8"), isHLS: true)], title: "Web")
+        let input = ResolvedInput(inputs: [.init(url: server.url("index.m3u8"), manifest: .hls)], title: "Web")
         let info = try await MediaProbe(tools: tools).probe(input)
         #expect(info.video.count == 1)
+    }
+
+    /// A DASH manifest is one input: every representation, and the audio. The TV gets the one
+    /// Apple plays as it is (not the Hi10P one), with its sound.
+    @Test(.enabled("Needs an ffmpeg built with libxml2 (DASH)") { await TestSupport.ffmpegHasDemuxer("dash") })
+    func aDashStreamPlaysWithAudio() async throws {
+        let tools = try #require(TestSupport.tools)
+        let server = try await HLSServer(directory: try await Self.makeDASH())
+        defer { server.stop() }
+        let pipeline = StreamPipeline(tools: tools, folders: SessionFolders(root: try TestSupport.makeTemporaryDirectory()),
+                                      profile: .default, host: "127.0.0.1")
+        let input = ResolvedInput(inputs: [.init(url: server.url("index.mpd"), manifest: .dash)], title: "Web")
+        let media = try await pipeline.probe(input)
+        #expect(media.info.video.map(\.pixelFormat) == ["yuv420p"])
+        #expect(media.info.audio.map(\.codec) == [.aac])
+        let stream = try await pipeline.start(media, at: 0)
+        #expect(stream.plan.videoAction == .copy(.h264))
+        #expect(stream.plan.audioAction == .copy(.aac))
+        #expect(await TestSupport.playerItemStatus(stream.url) == .readyToPlay)
+        // What the TV is given has both tracks.
+        let served = try await MediaProbe(tools: tools).probe(ResolvedInput(inputs: [.init(url: stream.mediaPlaylistURL)], title: ""))
+        #expect(served.video.count == 1)
+        #expect(served.audio.count == 1)
+        await stream.stop()
+    }
+
+    /// A DASH manifest of CENC-encrypted video has no key to give ffmpeg, which would copy the
+    /// samples through as noise: the probe refuses it, at once.
+    @Test(.enabled("Needs an ffmpeg built with libxml2 (DASH)") { await TestSupport.ffmpegHasDemuxer("dash") },
+          .timeLimit(.minutes(1)))
+    func anEncryptedDashStreamIsRefusedAtOnce() async throws {
+        let tools = try #require(TestSupport.tools)
+        let server = try await HLSServer(directory: try await Self.makeDASH(encrypted: true))
+        defer { server.stop() }
+        let input = ResolvedInput(inputs: [.init(url: server.url("index.mpd"), manifest: .dash)], title: "Web")
+        await #expect(throws: MediaProbeError.protectedContent) {
+            try await MediaProbe(tools: tools).probe(input)
+        }
     }
 
     /// Spec §6: a site that refuses the stream (an expired link or a missing cookie).
@@ -123,6 +161,27 @@ struct WebInputTests {
         await #expect(throws: MediaProbeError.self) {
             try await MediaProbe(tools: tools).probe(Self.web(server.url("local.m3u8")))
         }
+    }
+
+    /// The 10-second test clip as a DASH manifest of 2-second fMP4 segments, copied rather than
+    /// encoded (so any ffmpeg can make it): one AdaptationSet of two video representations, 8-bit
+    /// H.264 and 10-bit H.264, and one of AAC audio, as a site's manifest lists them. `encrypted`
+    /// encrypts it with CENC (AES-CTR) under a key nothing here has.
+    static func makeDASH(encrypted: Bool = false) async throws -> URL {
+        let tools = try #require(TestSupport.tools)
+        let folder = try TestSupport.makeTemporaryDirectory()
+        var arguments = [
+            "-hide_banner", "-loglevel", "error", "-i", TestSupport.media("h264_10bit_aac.mkv").path,
+            "-i", TestSupport.media("h264_aac.mp4").path, "-map", "0:v", "-map", "1:v", "-map", "1:a", "-c", "copy",
+            "-f", "dash", "-seg_duration", "2", "-adaptation_sets", "id=0,streams=v id=1,streams=a",
+        ]
+        if encrypted {
+            arguments += ["-format_options", "encryption_scheme=cenc-aes-ctr:encryption_key=76a6c65c5ea762046bd749a2e632ccbb"
+                + ":encryption_kid=a7e61c373e219033c21091fa607bf3b8"]
+        }
+        let result = try await ProcessRunner.run(tools.ffmpeg, arguments: arguments + [folder.appendingPathComponent("index.mpd").path])
+        try #require(result.status == 0, "ffmpeg failed: \(String(decoding: result.stderr, as: UTF8.self))")
+        return folder
     }
 
     /// The 10-second test clip as 2-second MPEG-TS segments; `live` leaves out #EXT-X-ENDLIST.

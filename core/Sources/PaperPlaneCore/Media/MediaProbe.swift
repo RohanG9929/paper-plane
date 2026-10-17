@@ -13,14 +13,18 @@ public struct MediaProbe: Sendable {
         guard !input.inputs.isEmpty else { throw MediaProbeError.noInputs }
         var parts: [MediaInfo] = []
         for (position, item) in input.inputs.enumerated() {
-            let arguments = ["-v", "error", "-print_format", "json", "-show_format", "-show_streams"]
-                + item.ffmpegOptions + [item.ffmpegLocation]
+            var arguments = ["-v", "error", "-print_format", "json", "-show_format", "-show_streams"]
+            if item.manifest == .dash {
+                // The first packet says whether the video is encrypted (see `FFprobeParser.parse`).
+                arguments += ["-show_packets", "-read_intervals", "%+#1"]
+            }
+            arguments += item.ffmpegOptions + [item.ffmpegLocation]
             let result = try await ProcessRunner.run(tools.ffprobe, arguments: arguments)
             guard result.status == 0 else {
                 throw MediaProbeError.ffprobeFailed(status: result.status, message: Redaction.summary(of: result.stderr))
             }
             parts.append(try FFprobeParser.parse(result.stdout, input: position))
         }
-        return MediaInfo.merging(parts).keepingBestVariant()
+        return MediaInfo.merging(parts).keepingBestVariant(audioIsSeparate: input.inputs.contains { $0.manifest == .dash })
     }
 }

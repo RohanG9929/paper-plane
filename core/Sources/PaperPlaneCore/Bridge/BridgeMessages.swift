@@ -42,6 +42,15 @@ public enum NativeMessaging {
 public struct PlayRequest: Equatable, Sendable {
     public enum Format: String, Sendable {
         case hls, dash, progressive
+
+        /// What ffmpeg is told it is reading.
+        public var manifest: ManifestKind {
+            switch self {
+            case .hls: .hls
+            case .dash: .dash
+            case .progressive: .none
+            }
+        }
     }
 
     public enum Source: Equatable, Sendable {
@@ -95,7 +104,7 @@ public struct PlayRequest: Equatable, Sendable {
     /// What ffmpeg reads, for a stream. nil for a page, which needs yt-dlp first.
     public var input: ResolvedInput? {
         guard case .stream(let url, let format, let headers) = source else { return nil }
-        return ResolvedInput(inputs: [ResolvedInput.Input(url: url, headers: headers, isHLS: format == .hls)], title: title)
+        return ResolvedInput(inputs: [ResolvedInput.Input(url: url, headers: headers, manifest: format.manifest)], title: title)
     }
 
     /// The allowed headers, named the usual way whatever case they came in.

@@ -43,7 +43,7 @@ public enum HDRFormat: Equatable, Sendable {
     }
 }
 
-public enum AudioCodecName: Equatable, Sendable {
+public enum AudioCodecName: Hashable, Sendable {
     case aac
     case ac3
     case eac3
@@ -83,7 +83,8 @@ public struct VideoTrack: Equatable, Sendable {
     public var hdr: HDRFormat?
     /// Frames per second, from ffprobe's `avg_frame_rate` (or `r_frame_rate`). nil when unknown.
     public var frameRate: Double? = nil
-    /// In an HLS master playlist, the bandwidth of the variant it belongs to.
+    /// In an HLS master playlist or a DASH manifest, the bandwidth of the variant (representation)
+    /// it belongs to.
     public var variant: Int? = nil
 }
 
@@ -113,7 +114,7 @@ public struct AudioTrack: Equatable, Sendable {
     public var title: String?
     public var isDefault: Bool
     /// In an HLS master playlist, the bandwidth of the variant it belongs to; nil for a rendition
-    /// the variants share.
+    /// the variants share. In a DASH manifest, the bandwidth of the audio representation itself.
     public var variant: Int? = nil
 }
 
@@ -156,7 +157,11 @@ public struct MediaInfo: Equatable, Sendable {
     /// Paper Plane copies over one it re-encodes among equals, then the highest bandwidth; when
     /// every variant is over the cap it takes the smallest, to re-encode the least. Anything
     /// without variants is unchanged.
-    func keepingBestVariant() -> MediaInfo {
+    ///
+    /// An HLS variant carries its own audio, found by its bandwidth. A DASH manifest lists audio
+    /// apart (`audioIsSeparate`): every audio representation has a bandwidth of its own, matching
+    /// no video's, so each language's best one is kept instead.
+    func keepingBestVariant(audioIsSeparate: Bool = false) -> MediaInfo {
         let variants = video.compactMap { track in track.variant.map { (track: track, bandwidth: $0) } }
         var candidates = variants.filter { $0.track.shorterSide <= Self.variantCap }
         if candidates.isEmpty, let smallest = variants.map(\.track.shorterSide).min() {
@@ -169,7 +174,26 @@ public struct MediaInfo: Equatable, Sendable {
         guard let best else { return self }
         var kept = self
         kept.video = [best.track]
-        kept.audio = audio.filter { $0.variant == nil || $0.variant == best.bandwidth }
+        kept.audio = audioIsSeparate ? bestAudioRepresentations()
+            : audio.filter { $0.variant == nil || $0.variant == best.bandwidth }
         return kept
+    }
+
+    /// The audio, with each group of representations that differ only in bandwidth (same language,
+    /// codec and channels) cut to its highest, in the order listed.
+    private func bestAudioRepresentations() -> [AudioTrack] {
+        struct Format: Hashable {
+            var language: String?
+            var codec: AudioCodecName
+            var channels: Int
+        }
+        var best: [Format: AudioTrack] = [:]
+        for track in audio {
+            let format = Format(language: track.language, codec: track.codec, channels: track.channels)
+            if (track.variant ?? 0) > (best[format]?.variant ?? -1) {
+                best[format] = track
+            }
+        }
+        return audio.filter { best[Format(language: $0.language, codec: $0.codec, channels: $0.channels)]?.ref == $0.ref }
     }
 }

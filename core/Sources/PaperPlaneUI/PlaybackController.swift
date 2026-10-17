@@ -314,7 +314,7 @@ public final class PlaybackController {
         }
         switch request.source {
         case .stream(let url, let format, let headers):
-            let input = ResolvedInput(inputs: [.init(url: url, headers: headers, isHLS: format == .hls)], title: request.title)
+            let input = ResolvedInput(inputs: [.init(url: url, headers: headers, manifest: format.manifest)], title: request.title)
             return await begin(title: input.title, from: .browser) { await self.start(input, at: request.startAt) }.value
         case .page(let url, let headers):
             return await begin(title: request.title, from: .browser) {
@@ -323,12 +323,10 @@ public final class PlaybackController {
         }
     }
 
-    /// Why Paper Plane won't play what the browser sent, or nil when it will: never DASH, which
-    /// ffmpeg reads only when built with libxml2 (Paper Plane's isn't yet), and pages only from
+    /// Why Paper Plane won't play what the browser sent, or nil when it will: pages only from
     /// YouTube.
     public static func refusal(of request: PlayRequest) -> String? {
         switch request.source {
-        case .stream(_, .dash, _): "Paper Plane can't play this site's kind of stream (DASH) yet."
         case .page(let url, _) where !Links.isYouTubePage(url): "Paper Plane takes only YouTube pages from the browser."
         case .stream, .page: nil
         }
@@ -806,6 +804,7 @@ enum PlaybackError: Error {
             "YouTube now needs Deno to give Paper Plane this video. Install it with \"brew install deno\" in Terminal, then try again."
         case YtDlpFailure.failed(let reason?, _): "Paper Plane couldn't get this video: \(reason)"
         case YtDlpFailure.failed: "Paper Plane couldn't get this video from the page."
+        case MediaProbeError.protectedContent: "This video is protected, so Paper Plane can't play it."
         case PlanError.noVideoTrack: fromTheWeb ? "This stream has no video." : "This file has no video."
         case is MediaProbeError where fromTheWeb, is TranscodeError where fromTheWeb:
             "Paper Plane couldn't get this video from the site. \(origin.again.capitalizedFirst)."

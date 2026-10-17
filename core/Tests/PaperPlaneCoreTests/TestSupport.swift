@@ -63,8 +63,19 @@ enum TestSupport {
 
     /// Whether the ffmpeg under test has a filter, e.g. `zscale` (needed for HDR → SDR tone mapping).
     static func ffmpegHasFilter(_ name: String) async -> Bool {
+        await ffmpegListing("-filters", has: name)
+    }
+
+    /// Whether the ffmpeg under test has a demuxer, e.g. `dash` (which needs libxml2: Homebrew's
+    /// ffmpeg hasn't it, the bundled one has).
+    static func ffmpegHasDemuxer(_ name: String) async -> Bool {
+        await ffmpegListing("-demuxers", has: name)
+    }
+
+    /// Whether ffmpeg's `listing` (`-filters`, `-demuxers`) has a line for `name`: its second word.
+    private static func ffmpegListing(_ listing: String, has name: String) async -> Bool {
         guard let tools,
-              let result = try? await ProcessRunner.run(tools.ffmpeg, arguments: ["-hide_banner", "-filters"])
+              let result = try? await ProcessRunner.run(tools.ffmpeg, arguments: ["-hide_banner", listing])
         else { return false }
         return String(decoding: result.stdout, as: UTF8.self).split(separator: "\n").contains { line in
             line.split(separator: " ").dropFirst().first == Substring(name)

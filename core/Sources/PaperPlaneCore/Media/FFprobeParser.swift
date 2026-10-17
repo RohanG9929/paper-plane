@@ -7,6 +7,9 @@ public enum MediaProbeError: Error, Equatable {
     case unreadableOutput
     /// ffprobe exited with an error. `message` is redacted (no URL queries).
     case ffprobeFailed(status: Int32, message: String)
+    /// The video is encrypted (DASH's CENC), and there's no key: ffmpeg would pass its samples on
+    /// as noise.
+    case protectedContent
 }
 
 /// Turns `ffprobe -print_format json -show_format -show_streams` output into a MediaInfo.
@@ -48,17 +51,43 @@ enum FFprobeParser {
             var duration: String?
         }
 
+        /// A packet ffprobe was asked to show (`-show_packets`): the side data its demuxer attached.
+        struct Packet: Decodable {
+            struct SideData: Decodable {
+                var type: String?
+
+                enum CodingKeys: String, CodingKey {
+                    case type = "side_data_type"
+                }
+            }
+
+            var sideData: [SideData]?
+
+            enum CodingKeys: String, CodingKey {
+                case sideData = "side_data_list"
+            }
+
+            /// ffmpeg's mov demuxer marks a sample it found encrypted and had no key for.
+            var isEncrypted: Bool { sideData?.contains { $0.type == "Encryption info" } == true }
+        }
+
         var streams: [Stream]?
         var format: Format?
+        var packets: [Packet]?
     }
 
-    /// `input` is the ffmpeg input position, recorded in each track's ref.
+    /// `input` is the ffmpeg input position, recorded in each track's ref. Throws
+    /// `MediaProbeError.protectedContent` if the packets ffprobe was asked to show (`-show_packets`)
+    /// are encrypted.
     static func parse(_ data: Data, input: Int = 0) throws -> MediaInfo {
         let output: Output
         do {
             output = try JSONDecoder().decode(Output.self, from: data)
         } catch {
             throw MediaProbeError.unreadableOutput
+        }
+        if output.packets?.contains(where: \.isEncrypted) == true {
+            throw MediaProbeError.protectedContent
         }
 
         var info = MediaInfo(duration: duration(output.format?.duration), video: [], audio: [], subtitles: [])

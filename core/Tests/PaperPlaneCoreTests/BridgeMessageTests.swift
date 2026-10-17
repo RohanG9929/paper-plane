@@ -47,11 +47,30 @@ struct PlayRequestTests {
         #expect(request.input?.title == "A film")
     }
 
+    /// A token-authed stream (self-hosted, API-based) needs its Authorization. It's kept whatever
+    /// case the browser used, and named the usual way; the proxy sends it to the stream's own
+    /// site only (WebProxyTests).
+    @Test(arguments: ["Authorization", "authorization", "AUTHORIZATION"])
+    func authorizationIsKept(_ name: String) throws {
+        let request = try PlayRequest.decode(Self.json("""
+            {"type":"play","v":1,"source":{"kind":"stream","url":"https://cdn.example/v/master.m3u8","format":"hls",
+             "headers":{"\(name)":"Bearer abc","Cookie":"session=1","Referer":"https://site.example/watch",
+             "User-Agent":"Mozilla/5.0","Origin":"https://site.example","X-Other":"dropped"}}}
+            """))
+        guard case .stream(_, _, let headers) = request.source else {
+            Issue.record("not a stream")
+            return
+        }
+        #expect(headers == ["Authorization": "Bearer abc", "Cookie": "session=1", "Referer": "https://site.example/watch",
+                            "User-Agent": "Mozilla/5.0", "Origin": "https://site.example"])
+        #expect(request.input?.inputs.first?.headers["Authorization"] == "Bearer abc")
+    }
+
     /// YouTube (spec §5.1): the page, with the site's cookies for yt-dlp in a later version.
     @Test func decodesAPageRequest() throws {
         let request = try PlayRequest.decode(Self.json("""
             {"type":"play","v":1,"source":{"kind":"page","url":"https://www.youtube.com/watch?v=x",
-             "headers":{"Cookie":"SID=1","Authorization":"dropped"}},"title":"Clip"}
+             "headers":{"Cookie":"SID=1","X-Other":"dropped"}},"title":"Clip"}
             """))
         #expect(request.source == .page(URL(string: "https://www.youtube.com/watch?v=x")!, headers: ["Cookie": "SID=1"]))
         #expect(request.startAt == 0)

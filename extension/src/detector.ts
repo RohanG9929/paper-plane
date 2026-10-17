@@ -10,7 +10,7 @@ export interface Candidate {
   format: Format;
   /** The frame that fetched it; -1 for a worker's request. */
   frameId: number;
-  /** Cookie, Referer, Origin and User-Agent from its request, for Paper Plane to send too. */
+  /** Cookie, Referer, Origin, User-Agent and Authorization from its request, for Paper Plane to send too. */
   headers: Record<string, string>;
   firstSeen: number;
   lastSeen: number;

@@ -48,6 +48,51 @@ struct WebProxyTests {
         #expect(proxy.input.inputs[0].headers.isEmpty) // ffmpeg itself never sees the cookie
     }
 
+    /// A token-authed stream's Authorization goes the way the cookie does: to the stream's own site,
+    /// and to no other host its playlist names. The test site logs the header it was sent.
+    @Test func authorizationIsWithheldCrossSite() async throws {
+        let tools = try #require(TestSupport.tools)
+        let log = try TestSupport.makeTemporaryDirectory().appendingPathComponent("requests.log")
+        // An "ad" on another host: localhost, where the playlist is on 127.0.0.1.
+        let folder = try await Self.site { index in "http://localhost:\(Self.placeholderPort)/seg\(index).ts" }
+        let server = try await HLSServer(directory: folder, log: log)
+        defer { server.stop() }
+        let port = server.port
+        try Self.fillInPort(port, in: folder.appendingPathComponent("index.m3u8"))
+
+        var input = Self.web(server.url("index.m3u8"))
+        input.inputs[0].headers["Authorization"] = "Bearer \(Self.token)"
+        let proxy = try await WebProxy.start(serving: input)
+        defer { proxy.stop() }
+        let info = try await MediaProbe(tools: tools).probe(proxy.input)
+        #expect(info.video.count == 1)
+        let requests = Self.requests(in: log)
+        #expect(requests.contains { $0.hasPrefix("127.0.0.1:\(port) /index.m3u8") && $0.hasSuffix("authorization=Bearer \(Self.token)") })
+        let crossSite = requests.filter { $0.hasPrefix("localhost") }
+        #expect(!crossSite.isEmpty) // the "ad" was fetched, so the check below isn't vacuous
+        #expect(crossSite.allSatisfy { $0.hasSuffix("authorization=None") })
+        #expect(!crossSite.contains { $0.contains(Self.token) })
+        #expect(proxy.input.inputs[0].headers.isEmpty) // ffmpeg itself never sees the token
+    }
+
+    /// The same token, with the segments on the stream's own site, comes with every one of them.
+    @Test func authorizationReachesTheStreamsOwnSegments() async throws {
+        let tools = try #require(TestSupport.tools)
+        let log = try TestSupport.makeTemporaryDirectory().appendingPathComponent("requests.log")
+        let folder = try await Self.site { index in "seg\(index).ts" }
+        let server = try await HLSServer(directory: folder, log: log)
+        defer { server.stop() }
+        var input = Self.web(server.url("index.m3u8"))
+        input.inputs[0].headers["Authorization"] = "Bearer \(Self.token)"
+        let proxy = try await WebProxy.start(serving: input)
+        defer { proxy.stop() }
+        let info = try await MediaProbe(tools: tools).probe(proxy.input)
+        #expect(info.video.count == 1)
+        let segments = Self.requests(in: log).filter { $0.contains("/seg") }
+        #expect(!segments.isEmpty)
+        #expect(segments.allSatisfy { $0.hasSuffix("authorization=Bearer \(Self.token)") })
+    }
+
     /// A page's playlist naming the router, or a service on the Mac, gets nowhere (SSRF).
     @Test func refusesLocalAddressesForAStreamThatIsNt() async throws {
         let tools = try #require(TestSupport.tools)
@@ -145,6 +190,9 @@ struct WebProxyTests {
 
     /// Playlists are written before the server's port is known.
     static let placeholderPort = 1
+
+    /// A stand-in for an access token: it must never reach a host that isn't the stream's.
+    static let token = "tok3n-xyz-0123"
 
     static func fillInPort(_ port: Int, in playlist: URL) throws {
         let text = try String(contentsOf: playlist, encoding: .utf8)

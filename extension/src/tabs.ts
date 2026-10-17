@@ -39,6 +39,7 @@ const headerNames: Record<string, string> = {
   referer: "Referer",
   origin: "Origin",
   "user-agent": "User-Agent",
+  authorization: "Authorization",
 };
 
 export function newTab(): TabState {

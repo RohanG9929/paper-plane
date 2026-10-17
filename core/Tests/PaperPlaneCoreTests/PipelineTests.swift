@@ -115,7 +115,7 @@ final class HLSServer {
     private let process = Process()
     let port: Int
 
-    /// `log` collects each request's host, path and cookie.
+    /// `log` collects each request's host, path, cookie and authorization.
     init(directory: URL, log: URL? = nil) async throws {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["python3", TestSupport.repoRoot.appendingPathComponent("scripts/serve-hls.py").path,

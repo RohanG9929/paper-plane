@@ -9,10 +9,19 @@ describe("tab state", () => {
       { name: "Referer", value: "https://site.example/watch" },
       { name: "Origin", value: "https://site.example" },
       { name: "User-Agent", value: "Mozilla/5.0" },
-      { name: "Authorization", value: "Bearer secret" },
       { name: "X-Client-Data", value: "abc" },
       { name: "Accept" },
     ])).toEqual({ Cookie: "session=1", Referer: "https://site.example/watch", Origin: "https://site.example", "User-Agent": "Mozilla/5.0" });
+  });
+
+  it("keeps a token-authed stream's Authorization, whatever its case, and still drops the rest", () => {
+    expect(pickHeaders([
+      { name: "authorization", value: "Bearer abc" },
+      { name: "X-Client-Data", value: "abc" },
+      { name: "Proxy-Authorization", value: "Basic xyz" },
+      { name: "Authorization" },
+    ])).toEqual({ Authorization: "Bearer abc" });
+    expect(pickHeaders([{ name: "AUTHORIZATION", value: "Bearer abc" }])).toEqual({ Authorization: "Bearer abc" });
   });
 
   it("follows a playlist whose link changes, keeping the newest link and headers", () => {

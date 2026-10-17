@@ -28,7 +28,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         /hang/<seconds>/… says nothing for that long."""
         if self.server.log:
             with open(self.server.log, "a") as log:
-                log.write(f"{self.headers.get('Host')} {self.path} cookie={self.headers.get('Cookie')}\n")
+                log.write(f"{self.headers.get('Host')} {self.path} cookie={self.headers.get('Cookie')}"
+                          f" authorization={self.headers.get('Authorization')}\n")
         parts = self.path.split("/", 3)  # "", hook, argument, rest
         if len(parts) >= 3 and parts[1] == "redirect":
             self.send_response(302)
@@ -68,7 +69,7 @@ def main():
     parser.add_argument("--bind", default="127.0.0.1", help="use 0.0.0.0 so a TV can connect")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--verbose", action="store_true", help="log every request")
-    parser.add_argument("--log", help="append each request's host, path and cookie to this file")
+    parser.add_argument("--log", help="append each request's host, path, cookie and authorization to this file")
     options = parser.parse_args()
 
     handler = functools.partial(Handler, directory=options.directory)

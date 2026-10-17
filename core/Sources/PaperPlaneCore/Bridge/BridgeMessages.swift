@@ -70,8 +70,10 @@ public struct PlayRequest: Equatable, Sendable {
     /// Where the browser's video was, in seconds.
     public var startAt: Double
 
-    /// The only headers passed on: what sites need to hand over the video, nothing else.
-    static let allowedHeaders = ["Cookie", "Referer", "Origin", "User-Agent"]
+    /// The only headers passed on: what sites need to hand over the video, nothing else. The
+    /// proxy sends all but User-Agent to the stream's own site only; Authorization is redacted
+    /// from logs like the cookie.
+    static let allowedHeaders = ["Cookie", "Referer", "Origin", "User-Agent", "Authorization"]
     /// A page chooses its own title; the remote, the menu and Control Center get at most this.
     public static let maximumTitleLength = 200
 

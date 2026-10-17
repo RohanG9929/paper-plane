@@ -484,20 +484,39 @@ struct PlaybackControllerMediaTests {
     /// the TV plays on: the clock keeps going, and the new session starts where playback has got
     /// to by then, not where it was when the track was chosen.
     @Test func aTrackChangeFollowsPlaybackWhileItLoads() async throws {
+        // The subtitles' conversion (begun in the background when playback starts) is held until
+        // the test lets it finish: a text track's new session waits on it, so until then the
+        // session can't start, however fast or slow the machine.
+        let mayFinish = OSAllocatedUnfairLock(initialState: false)
         let environment = try Self.environment(extractSubtitles: { pipeline, media in
-            await Self.uncancellableDelay(3.5)
+            while !mayFinish.withLock({ $0 }) {
+                await Self.uncancellableDelay(0.05)
+            }
             return try await pipeline.extractSubtitles(media)
         })
         let controller = try await playingController(UITestMedia.file("h264_ac3_51.mkv"), environment: environment)
         await PlaybackControllerTests.eventually { controller.movieTime > 0.2 } // playing, not still buffering
         let chosenAt = controller.movieTime
         controller.selectSubtitle("track-0-2")
-        await PlaybackControllerTests.eventually { controller.movieTime > chosenAt + 0.4 }
+        // The TV plays on while the change loads. How far it gets is measured, not assumed from the
+        // wall clock: a loaded CI runner plays a muted stream far slower than real time.
+        var furthest = chosenAt
+        await PlaybackControllerTests.eventually {
+            furthest = max(furthest, controller.movieTime)
+            return furthest > chosenAt + 0.4
+        }
         #expect(controller.loading != nil)
-        #expect(controller.movieTime > chosenAt + 0.4, "the clock keeps going")
+        #expect(furthest > chosenAt + 0.4, "the clock keeps going")
+        let watched = ContinuousClock.now // a while longer, so a quick machine proves more
+        while ContinuousClock.now - watched < .seconds(1.5) {
+            furthest = max(furthest, controller.movieTime)
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        mayFinish.withLock { $0 = true } // now the new session may start, from wherever playback is by then
         await PlaybackControllerTests.eventually { controller.loading == nil }
-        // Copied video starts on the keyframe (every second here) before where playback was.
-        #expect((controller.stream?.session.offset ?? 0) >= chosenAt + 1)
+        // Copied video starts on the keyframe (every second here) before where playback was when
+        // the new session began, which is no earlier than the furthest point seen before it could.
+        #expect((controller.stream?.session.offset ?? 0) >= furthest.rounded(.down))
         await controller.shutDown()
     }
 

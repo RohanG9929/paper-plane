@@ -18,7 +18,7 @@ public enum YtDlpFailure: Error, Equatable, Sendable {
     case missing
     /// yt-dlp knows no video at this address.
     case unsupported
-    /// Only formats ffmpeg can't read (DASH, RTMP, …).
+    /// Only formats ffmpeg can't read (RTMP, Smooth Streaming, …).
     case noPlayableFormat
     /// yt-dlp's own reason, the first sentence of its last error (nil when it gave none), and its
     /// last words, redacted, for the failure log. Two failures are the same if their reasons are.
@@ -82,8 +82,12 @@ public enum YtDlpFailure: Error, Equatable, Sendable {
 
 /// Turns yt-dlp's `-J` answer into ffmpeg inputs (Milestone 4, decision 9).
 enum YtDlpOutput {
-    /// What ffmpeg may be given: plain HTTP(S) files and HLS. Never DASH, RTMP and the like.
-    static let playableProtocols: Set = ["https", "http", "m3u8", "m3u8_native"]
+    /// How yt-dlp names a format that is one representation of a DASH manifest (it has no other
+    /// name for DASH).
+    static let dashProtocol = "http_dash_segments"
+    /// What ffmpeg may be given: plain HTTP(S) files, HLS, and DASH (as its manifest). Never RTMP
+    /// and the like.
+    static let playableProtocols: Set = ["https", "http", "m3u8", "m3u8_native", dashProtocol]
     /// Headers the proxy sets or that only make sense on one connection: a format can't override them.
     static let reservedHeaders: Set = ["accept-encoding", "connection", "content-length", "host", "range",
                                        "transfer-encoding", "keep-alive", "upgrade", "te", "trailer"]
@@ -91,9 +95,16 @@ enum YtDlpOutput {
     static func page(from data: Data, page: URL, fallbackTitle: String) throws -> ResolvedPage {
         guard let answer = try? JSONDecoder().decode(Info.self, from: data) else { throw YtDlpFailure.unsupported }
         guard let video = firstVideo(in: answer) else { throw YtDlpFailure.unsupported }
-        let formats = video.requestedFormats ?? (video.url == nil ? [] : [video.format])
+        let formats = video.requestedFormats ?? (video.format.address == nil ? [] : [video.format])
         guard !formats.isEmpty else { throw YtDlpFailure.unsupported }
-        let inputs = try formats.map(input(for:))
+        var inputs: [ResolvedInput.Input] = []
+        for format in formats {
+            let next = try input(for: format)
+            // A manifest holds the video and the audio: yt-dlp lists each representation as a
+            // format of its own, all naming the one manifest, which is read once.
+            if next.manifest == .dash, inputs.contains(where: { $0.manifest == .dash && $0.url == next.url }) { continue }
+            inputs.append(next)
+        }
 
         let start = video.startTime.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         return ResolvedPage(
@@ -110,14 +121,15 @@ enum YtDlpOutput {
     }
 
     private static func input(for format: Format) throws -> ResolvedInput.Input {
-        guard let url = Links.webLink(in: format.url), let scheme = url.scheme?.lowercased(),
+        guard let url = Links.webLink(in: format.address), let scheme = url.scheme?.lowercased(),
               playableProtocols.contains(format.protocol ?? scheme)
         else { throw YtDlpFailure.noPlayableFormat }
         var headers: [String: String] = [:]
         for (name, value) in format.headers ?? [:] where isToken(name) && !reservedHeaders.contains(name.lowercased()) {
             headers[name] = ResolvedInput.Input.stripLineBreaks(value)
         }
-        return ResolvedInput.Input(url: url, headers: headers, manifest: (format.protocol ?? "").hasPrefix("m3u8") ? .hls : .none)
+        let manifest: ManifestKind = format.isDash ? .dash : (format.protocol ?? "").hasPrefix("m3u8") ? .hls : .none
+        return ResolvedInput.Input(url: url, headers: headers, manifest: manifest)
     }
 
     /// An HTTP header name: letters, digits and a few marks, nothing else.
@@ -131,10 +143,20 @@ enum YtDlpOutput {
         var url: String?
         var `protocol`: String?
         var headers: [String: String]?
+        /// The manifest a DASH or HLS format came from; the same for all of a DASH manifest's formats.
+        var manifestURL: String?
 
         enum CodingKeys: String, CodingKey {
-            case url, `protocol`, headers = "http_headers"
+            case url, `protocol`, headers = "http_headers", manifestURL = "manifest_url"
         }
+
+        var isDash: Bool { `protocol` == YtDlpOutput.dashProtocol }
+
+        /// What ffmpeg is given. A DASH format's own `url` is a template for one representation's
+        /// segments, not something ffmpeg can open: it reads the manifest (`manifest_url`), with
+        /// `url` only if there is none. Any other format is read at its `url`, even if it has a
+        /// `manifest_url` (an HLS media playlist names its master playlist).
+        var address: String? { isDash ? (manifestURL ?? url) : url }
     }
 
     private struct Info: Decodable {
@@ -146,13 +168,14 @@ enum YtDlpOutput {
         var url: String?
         var `protocol`: String?
         var headers: [String: String]?
+        var manifestURL: String?
 
         /// A single format's fields sit in the answer itself.
-        var format: Format { Format(url: url, protocol: `protocol`, headers: headers) }
+        var format: Format { Format(url: url, protocol: `protocol`, headers: headers, manifestURL: manifestURL) }
 
         enum CodingKeys: String, CodingKey {
             case type = "_type", title, startTime = "start_time", entries, requestedFormats = "requested_formats"
-            case url, `protocol`, headers = "http_headers"
+            case url, `protocol`, headers = "http_headers", manifestURL = "manifest_url"
         }
     }
 }

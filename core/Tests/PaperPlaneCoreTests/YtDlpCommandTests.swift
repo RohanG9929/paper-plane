@@ -36,13 +36,13 @@ struct YtDlpCommandTests {
 
     /// Spec §5.3: formats that can be copied (H.264 with AAC) first, up to 1080p by the shorter
     /// side, so a vertical Short (1080×1920) isn't sent at 480p; and only formats ffmpeg can read
-    /// (decision 7), so yt-dlp falls through to one when the best is DASH, RTMP and the like.
+    /// (decision 7), so yt-dlp falls through to one when the best is RTMP and the like.
     @Test func formatsPreferH264AndAACUpTo1080pAndOnlyWhatFFmpegReads() {
         let arguments = YtDlpCommand.arguments(page: page, cacheFolder: cache)
         #expect(Array(arguments.drop { $0 != "-f" }.prefix(2)) == ["-f", YtDlpCommand.formats])
         #expect(Array(arguments.drop { $0 != "-S" }.prefix(2)) == ["-S", "res:1080"])
         let readable = YtDlpCommand.readable
-        for refused in ["[protocol!*=dash]", "[protocol!^=rtmp]", "[protocol!=f4m]", "[protocol!=ism]",
+        for refused in ["[protocol!^=rtmp]", "[protocol!=f4m]", "[protocol!=ism]",
                         "[protocol!=websocket_frag]", "[protocol!=rtsp]", "[protocol!=mms]", "[protocol!=mhtml]"] {
             #expect(readable.contains(refused), "\(refused)")
         }
@@ -53,6 +53,17 @@ struct YtDlpCommandTests {
             "b\(readable)",
         ])
         #expect(!YtDlpCommand.formats.contains("height"), "a height cap sends Shorts at 480p")
+    }
+
+    /// ffmpeg reads DASH now (it has libxml2), so yt-dlp may hand a DASH answer back: it is fed to
+    /// ffmpeg as the one manifest. The streams ffmpeg can't read stay out.
+    @Test func dashIsNoLongerExcluded() {
+        #expect(!YtDlpCommand.readable.contains("dash"))
+        #expect(!YtDlpCommand.formats.contains("dash"))
+        for refused in ["[protocol!^=rtmp]", "[protocol!=rtsp]", "[protocol!=mms]", "[protocol!=ism]",
+                        "[protocol!=f4m]", "[protocol!=websocket_frag]", "[protocol!=mhtml]"] {
+            #expect(YtDlpCommand.readable.contains(refused), "\(refused)")
+        }
     }
 
     @Test func noCookieMeansAnEmptyConfiguration() {

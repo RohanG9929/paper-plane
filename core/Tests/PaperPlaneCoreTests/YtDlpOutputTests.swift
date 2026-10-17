@@ -46,6 +46,31 @@ enum YtDlpFixtures {
     {"_type": "playlist", "id": "PL2", "title": "Nothing here", "entries": []}
     """
 
+    /// A site that serves DASH: yt-dlp lists each representation of the manifest as its own format
+    /// (`http_dash_segments`, a `fragment_base_url` with `fragments` in place of a file), and every
+    /// one names the manifest they came from.
+    static let dash = """
+    {"id": "dash1", "_type": "video", "title": "A DASH video", "duration": 120, "format_id": "video-1080+audio-128",
+     "requested_formats": [
+      {"format_id": "video-1080", "manifest_url": "https://cdn.example.com/stream/manifest.mpd?token=abc",
+       "fragment_base_url": "https://cdn.example.com/stream/video/", "fragments": [{"path": "init.mp4"}, {"path": "seg-1.m4s"}],
+       "protocol": "http_dash_segments", "vcodec": "avc1.640028", "acodec": "none", "height": 1080, "ext": "mp4",
+       "http_headers": {"User-Agent": "\(agent)", "Referer": "https://example.com/watch/dash1"}},
+      {"format_id": "audio-128", "manifest_url": "https://cdn.example.com/stream/manifest.mpd?token=abc",
+       "fragment_base_url": "https://cdn.example.com/stream/audio/", "fragments": [{"path": "init.mp4"}, {"path": "seg-1.m4s"}],
+       "protocol": "http_dash_segments", "vcodec": "none", "acodec": "mp4a.40.2", "ext": "m4a",
+       "http_headers": {"User-Agent": "\(agent)", "Referer": "https://example.com/watch/dash1"}}
+     ]}
+    """
+
+    /// One DASH format that is the whole answer (a manifest with one muxed representation).
+    static let singleDash = """
+    {"id": "dash2", "_type": "video", "title": "One representation", "format_id": "mux",
+     "manifest_url": "https://cdn.example.com/mux/manifest.mpd", "fragment_base_url": "https://cdn.example.com/mux/",
+     "fragments": [{"path": "init.mp4"}], "protocol": "http_dash_segments", "vcodec": "avc1.640028", "acodec": "mp4a.40.2",
+     "http_headers": {"User-Agent": "\(agent)"}}
+    """
+
     static func with(protocol: String, url: String = "https://media.example.com/v.mpd") -> String {
         """
         {"id": "x", "_type": "video", "title": "x", "url": "\(url)", "protocol": "\(`protocol`)"}
@@ -105,9 +130,50 @@ struct YtDlpOutputTests {
         #expect(throws: YtDlpFailure.unsupported) { try resolve("not json") }
     }
 
-    /// ffmpeg can't read DASH (Milestone 3, decision 10), and nothing but HTTP(S) goes to ffmpeg.
-    @Test(arguments: ["http_dash_segments", "dash", "f4m", "ism", "rtmp", "rtsp", "mms", "websocket_frag", "mhtml"])
-    func dashAndOtherProtocolsAreRefused(_ name: String) {
+    /// DASH is played now, but as one manifest, not one input per representation: video and audio
+    /// are both in it, and ffmpeg's DASH demuxer reads them from there.
+    @Test func aDashResultIsOneManifestInput() throws {
+        let resolved = try resolve(YtDlpFixtures.dash)
+        #expect(resolved.input.inputs.count == 1)
+        let input = resolved.input.inputs[0]
+        #expect(input.url.absoluteString == "https://cdn.example.com/stream/manifest.mpd?token=abc")
+        #expect(input.manifest == .dash)
+        #expect(input.headers == ["User-Agent": YtDlpFixtures.agent, "Referer": "https://example.com/watch/dash1"])
+        #expect(resolved.input.title == "A DASH video")
+        #expect(resolved.input.page == page)
+    }
+
+    /// A single format that is DASH has the manifest beside its fragments, and may have no `url`.
+    @Test func aSingleDashFormatIsOneManifestInput() throws {
+        let resolved = try resolve(YtDlpFixtures.singleDash)
+        #expect(resolved.input.inputs == [
+            .init(url: URL(string: "https://cdn.example.com/mux/manifest.mpd")!, headers: ["User-Agent": YtDlpFixtures.agent],
+                  manifest: .dash),
+        ])
+    }
+
+    /// Only a format that names no manifest falls back to its own address; one that names none at
+    /// all, or a manifest that isn't a web address, isn't played.
+    @Test func aDashFormatWithoutAManifestUsesItsURLAndNeverANonWebAddress() throws {
+        let bare = YtDlpFixtures.with(protocol: "http_dash_segments", url: "https://media.example.com/v.mpd")
+        #expect(try resolve(bare).input.inputs == [.init(url: URL(string: "https://media.example.com/v.mpd")!, manifest: .dash)])
+        let none = #"{"_type": "video", "title": "x", "protocol": "http_dash_segments", "fragments": []}"#
+        #expect(throws: YtDlpFailure.unsupported) { try resolve(none) }
+        let file = #"{"_type": "video", "title": "x", "protocol": "http_dash_segments", "manifest_url": "file:///etc/passwd", "url": "https://e.com/v.mpd"}"#
+        #expect(throws: YtDlpFailure.noPlayableFormat) { try resolve(file) }
+    }
+
+    /// An HLS format names its playlist as a `manifest_url` too, but its `url` is what is read,
+    /// as before.
+    @Test func anHLSFormatStillReadsItsURL() throws {
+        let hls = #"{"_type": "video", "title": "x", "protocol": "m3u8_native", "url": "https://e.com/media.m3u8", "manifest_url": "https://e.com/master.m3u8"}"#
+        #expect(try resolve(hls).input.inputs == [.init(url: URL(string: "https://e.com/media.m3u8")!, manifest: .hls)])
+    }
+
+    /// Nothing but HTTP(S) goes to ffmpeg, and only the protocols it can read: not Flash's, Smooth
+    /// Streaming, RTMP and the like. (yt-dlp has no bare "dash"; DASH is `http_dash_segments`.)
+    @Test(arguments: ["dash", "http_dash_segments_generator", "f4m", "ism", "rtmp", "rtsp", "mms", "websocket_frag", "mhtml"])
+    func otherProtocolsAreRefused(_ name: String) {
         #expect(throws: YtDlpFailure.noPlayableFormat) { try resolve(YtDlpFixtures.with(protocol: name)) }
     }
 

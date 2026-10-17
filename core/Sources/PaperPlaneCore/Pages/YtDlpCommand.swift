@@ -2,10 +2,10 @@ import Foundation
 
 /// How Paper Plane asks yt-dlp about a page (spec §5.3; Milestone 4, decisions 5–8).
 enum YtDlpCommand {
-    /// Only what ffmpeg reads: never DASH (no libxml2), RTMP, RTSP, MMS, Smooth Streaming, Flash's
-    /// f4m, websockets or storyboards. Excluding them here lets yt-dlp fall through to a format
-    /// that plays instead of handing one back that won't.
-    static let readable = "[protocol!*=dash][protocol!^=rtmp][protocol!=rtsp][protocol!=mms][protocol!=ism]"
+    /// Only what ffmpeg reads: never RTMP, RTSP, MMS, Smooth Streaming, Flash's f4m, websockets or
+    /// storyboards. Excluding them here lets yt-dlp fall through to a format that plays instead of
+    /// handing one back that won't. DASH is allowed: ffmpeg reads it from its manifest.
+    static let readable = "[protocol!^=rtmp][protocol!=rtsp][protocol!=mms][protocol!=ism]"
         + "[protocol!=f4m][protocol!=websocket_frag][protocol!=mhtml]"
 
     /// Formats that can be copied (H.264 with AAC) first, then anything; separate video and audio

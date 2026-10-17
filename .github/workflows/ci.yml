@@ -7,6 +7,11 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to the same branch supersedes a run still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-and-build:
     runs-on: macos-26
@@ -52,16 +57,17 @@ jobs:
           scripts/make-test-media.sh
           python3 -I scripts/check-test-media.py
 
-      # Serially: on a three-core runner, suites converting video in parallel starve the tests
-      # that time a process spawn or a socket, and those then miss their "promptly" bounds.
+      # In parallel, as locally: the suites that convert video overlap, where serially they'd sum
+      # to a quarter of an hour on the runner's slow encoder. Tests that time a process spawn or a
+      # socket allow for the contention through TestSupport.timeScale.
       - name: Core and UI tests with Homebrew's ffmpeg
-        run: scripts/test-core.sh --no-parallel
+        run: scripts/test-core.sh
 
       - name: Core and UI tests with the bundled ffmpeg
         run: |
           export PAPERPLANE_FFMPEG="$PWD/vendor/ffmpeg/bin/ffmpeg"
           export PAPERPLANE_FFPROBE="$PWD/vendor/ffmpeg/bin/ffprobe"
-          scripts/test-core.sh --no-parallel
+          scripts/test-core.sh
 
       - name: Extension tests, types and build
         working-directory: extension

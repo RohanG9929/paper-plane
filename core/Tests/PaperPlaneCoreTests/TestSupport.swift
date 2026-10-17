@@ -5,8 +5,9 @@ import Foundation
 enum TestSupport {
     /// How much slower than a development Mac the machine running the tests is allowed to be.
     /// GitHub's shared macOS runners take several times as long to spawn a process or answer a
-    /// socket, so "finished promptly" bounds scale up there; locally they stay tight.
-    static let timeScale = ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == nil ? 1 : 4
+    /// socket, so "finished promptly" bounds scale up there; locally they stay tight. (Five: a
+    /// loaded runner once took 8.6 s to spawn a shell against a 3 s bound.)
+    static let timeScale = ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == nil ? 1 : 5
 
     /// An upper bound for something that must finish well before a real timeout would: `seconds`
     /// on a development Mac, more on a slow runner.

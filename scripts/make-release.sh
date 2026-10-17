@@ -12,8 +12,10 @@ cd "$(dirname "$0")/.."
 
 (cd extension && npm test --silent && npm run --silent typecheck && npm run --silent build)
 mkdir -p build
+# Warnings are errors through the project's build settings (see ci.yml); ARCHS keeps the package
+# Apple Silicon only, like the app.
 xcodebuild -project app/PaperPlane.xcodeproj -scheme PaperPlane -configuration Release -derivedDataPath build/DerivedData \
-  SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build > build/release-build.log 2>&1 \
+  ARCHS=arm64 build > build/release-build.log 2>&1 \
   || { tail -20 build/release-build.log >&2; echo "error: the Release build failed (build/release-build.log)" >&2; exit 1; }
 
 APP="build/DerivedData/Build/Products/Release/Paper Plane.app"

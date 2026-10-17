@@ -77,8 +77,11 @@ jobs:
           npm run typecheck
           npm run build
 
+      # Warnings are errors through the project's own build settings, which reach the app and the
+      # helper but not the package: on the command line the setting reaches the package too, where
+      # it meets Xcode's -suppress-warnings and Xcode 26 refuses the pair. ARCHS on the command
+      # line does reach the package, which would otherwise be built for Intel as well.
       - name: Build the app (warnings are errors)
         run: >
           xcodebuild -project app/PaperPlane.xcodeproj -scheme PaperPlane -configuration Release
-          -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
-          GCC_TREAT_WARNINGS_AS_ERRORS=YES build
+          -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO ARCHS=arm64 build

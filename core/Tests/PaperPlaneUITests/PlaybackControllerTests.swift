@@ -516,7 +516,8 @@ struct PlaybackControllerMediaTests {
         await PlaybackControllerTests.eventually { controller.loading == nil }
         // Copied video starts on the keyframe (every second here) before where playback was when
         // the new session began, which is no earlier than the furthest point seen before it could.
-        #expect((controller.stream?.session.offset ?? 0) >= furthest.rounded(.down))
+        // (A keyframe's time comes from the file's timebase, a hair short of the whole second.)
+        #expect((controller.stream?.session.offset ?? 0) >= furthest.rounded(.down) - 0.01)
         await controller.shutDown()
     }
 

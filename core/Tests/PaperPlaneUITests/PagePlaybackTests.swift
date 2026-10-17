@@ -325,7 +325,9 @@ struct PagePlaybackTests {
 /// The same with real files from scripts/serve-hls.py: separate video and audio, as YouTube
 /// sends them.
 @MainActor
-@Suite(.enabled(if: UITestMedia.available, "Needs ffmpeg and scripts/make-test-media.sh"), .timeLimit(.minutes(1)))
+// Five minutes guards against a hang; under load GitHub's runners take over a minute for the
+// longest of these, which converts a clip twice.
+@Suite(.enabled(if: UITestMedia.available, "Needs ffmpeg and scripts/make-test-media.sh"), .timeLimit(.minutes(5)))
 struct PageMediaTests {
     @Test func aYouTubePagePlaysWhatYtDlpFinds() async throws {
         let server = try await UITestServer(directory: UITestMedia.file(""))

@@ -325,7 +325,7 @@ struct GitHubReleasesTests {
         let cancelledAt = ContinuousClock.now
         fetching.cancel()
         await #expect(throws: (any Error).self) { try await fetching.value }
-        #expect(ContinuousClock.now - cancelledAt < .seconds(3))
+        #expect(ContinuousClock.now - cancelledAt < TestSupport.promptly(2)) // the site hangs 20 s
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).isEmpty)
     }
 

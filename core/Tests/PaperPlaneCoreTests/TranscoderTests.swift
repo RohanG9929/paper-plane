@@ -82,7 +82,7 @@ struct TranscoderTests {
         await #expect(throws: CancellationError.self) {
             try await start.value
         }
-        #expect(ContinuousClock.now - cancelledAt < .seconds(3))
+        #expect(ContinuousClock.now - cancelledAt < TestSupport.promptly(3))
         #expect(!FileManager.default.fileExists(atPath: fake.output.path))
     }
 
@@ -103,13 +103,13 @@ struct TranscoderTests {
     }
 
     @Test func stopEndsAPausedSessionAndDeletesTheFolder() async throws {
-        let fake = try FakeFFmpeg(segments: 100, interval: 0.1)
+        let fake = try FakeFFmpeg(segments: 1000, interval: 0.1) // 100 s of work, so a prompt stop is unmistakable
         defer { fake.remove() }
         let session = try await Transcoder(tools: fake.tools).start(Self.plan, input: Self.input, in: fake.output)
         session.pause()
         let stoppedAt = ContinuousClock.now
         await session.stop()
-        #expect(ContinuousClock.now - stoppedAt < .seconds(3))
+        #expect(ContinuousClock.now - stoppedAt < TestSupport.promptly(3))
         #expect(!FileManager.default.fileExists(atPath: fake.output.path))
         await session.stop() // a second stop is harmless
     }

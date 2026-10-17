@@ -47,7 +47,7 @@ struct ProcessRunnerTests {
 
     @Test func cancellingStopsTheChildAndThrows() async throws {
         let run = Task {
-            try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sleep"), arguments: ["10"])
+            try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sleep"), arguments: ["60"])
         }
         try await Task.sleep(for: .milliseconds(300))
         let cancelledAt = ContinuousClock.now
@@ -56,7 +56,7 @@ struct ProcessRunnerTests {
             try await run.value
         }
         // Returning early means the child exited: run() only returns once its pipes close.
-        #expect(ContinuousClock.now - cancelledAt < .seconds(5))
+        #expect(ContinuousClock.now - cancelledAt < TestSupport.promptly(3))
     }
 
     /// yt-dlp reads the cookie from standard input (Milestone 4, decision 5).
@@ -103,13 +103,13 @@ struct ProcessRunnerTests {
 
     @Test(.timeLimit(.minutes(1))) func cancellingADisclaimedChildStopsIt() async throws {
         let run = Task {
-            try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sleep"), arguments: ["10"], disclaimsResponsibility: true)
+            try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sleep"), arguments: ["60"], disclaimsResponsibility: true)
         }
         try await Task.sleep(for: .milliseconds(300))
         let cancelledAt = ContinuousClock.now
         run.cancel()
         await #expect(throws: CancellationError.self) { try await run.value }
-        #expect(ContinuousClock.now - cancelledAt < .seconds(5))
+        #expect(ContinuousClock.now - cancelledAt < TestSupport.promptly(3))
     }
 
     @Test func missingExecutableThrows() async {

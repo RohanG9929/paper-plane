@@ -116,7 +116,7 @@ struct YtDlpTests {
         let fake = try FakeYtDlp("exec sleep 30")
         let started = ContinuousClock.now
         await #expect(throws: YtDlpFailure.timedOut) { try await resolve(with: fake, timeLimit: .milliseconds(500)) }
-        #expect(ContinuousClock.now - started < .seconds(5))
+        #expect(ContinuousClock.now - started < TestSupport.promptly(3)) // the fake sleeps 30 s
         if let pid = fake.pid {
             #expect(await Self.ends(pid), "yt-dlp is still running")
         }

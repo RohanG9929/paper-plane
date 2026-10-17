@@ -361,7 +361,8 @@ struct NowPlayingCard<RoutePicker: View>: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            Slider(value: Binding(get: { state.volume }, set: actions.setVolume), in: 0...1)
+            // A closure literal, not the stored closure itself: see TracksMenu's audio picker.
+            Slider(value: Binding(get: { state.volume }, set: { actions.setVolume($0) }), in: 0...1)
                 .controlSize(.small)
                 .disabled(!state.canAdjustVolume)
                 .accessibilityLabel("Volume")

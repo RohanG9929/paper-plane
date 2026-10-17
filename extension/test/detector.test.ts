@@ -32,8 +32,10 @@ describe("StreamDetector", () => {
     expect(choice.kind === "one" && choice.candidate.format).toBe("progressive");
   });
 
-  it("doesn't offer DASH, which Paper Plane's ffmpeg can't read yet", () => {
-    expect(chosen(aDashSite)).toEqual({ kind: "none" });
+  it("offers a DASH stream now that Paper Plane plays it end to end", () => {
+    const choice = chosen(aDashSite);
+    expect(choice.kind).toBe("one");
+    expect(choice.kind === "one" && choice.candidate.format).toBe("dash");
   });
 
   it("asks when two players are equally likely", () => {

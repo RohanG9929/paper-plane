@@ -93,8 +93,7 @@ export function observe(tab: TabState, response: Response): TabState {
     return tab;
   }
   const kind = classify(response.url, response.contentType, response.type);
-  // DASH isn't offered: Paper Plane's ffmpeg is built without the DASH reader (decision 10).
-  if (!kind || kind === "dash") {
+  if (!kind) {
     return tab;
   }
   let key: string;

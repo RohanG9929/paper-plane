@@ -94,8 +94,9 @@ describe("tab state", () => {
     expect(tab.candidates[0]?.lastActivity).toBe(9000);
   });
 
-  it("doesn't offer DASH, which Paper Plane's ffmpeg can't read yet", () => {
-    expect(replay([seen("https://dash.example/v/manifest.mpd", 0, { contentType: "application/dash+xml" })]).candidates).toEqual([]);
+  it("offers a sniffed DASH manifest as a candidate, like HLS", () => {
+    const tab = replay([seen("https://dash.example/v/manifest.mpd", 0, { contentType: "application/dash+xml" })]);
+    expect(tab.candidates.map((c) => [c.url, c.format])).toEqual([["https://dash.example/v/manifest.mpd", "dash"]]);
   });
 
   it("leaves the state as it was when nothing changed, so nothing is saved or redrawn", () => {

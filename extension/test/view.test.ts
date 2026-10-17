@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { newTab } from "../src/tabs";
 import { button, plan, popupState, rows, sendTarget } from "../src/view";
-import { newsSiteWithAnAd, replay, twoPlayers } from "./fixtures";
+import { aDashSite, newsSiteWithAnAd, replay, twoPlayers } from "./fixtures";
 
 describe("the toolbar button", () => {
   it("stays grey with nothing found, and only its popup offers to try the page", () => {
@@ -55,6 +55,17 @@ describe("the toolbar button", () => {
 
   it("sends a YouTube video's page even before anything else is found", () => {
     expect(plan(newTab(), "https://www.youtube.com/watch?v=abc", 0)).toEqual({ kind: "send", target: { kind: "page" } });
+  });
+
+  it("sends a sniffed DASH stream at a click, like HLS", () => {
+    const tab = replay(aDashSite.responses, aDashSite.videos);
+    const sure = plan(tab, "https://dash.example/watch", aDashSite.now);
+    expect(sure.kind).toBe("send");
+    expect(sure.kind === "send" && sure.target.kind === "stream" && sure.target.candidate.format).toBe("dash");
+    expect(button(tab, sure, false)).toEqual({ icon: "ready", badge: "", popup: false, title: "Send this video to your TV with Paper Plane" });
+    expect(popupState(tab, sure).rows).toEqual([{
+      key: "https://dash.example/content/abc/manifest.mpd", label: "DASH stream · dash.example", detail: "manifest.mpd · Playing · 20:00",
+    }]);
   });
 
   it("shows sending, and a failure until the next try", () => {

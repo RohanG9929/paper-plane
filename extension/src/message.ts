@@ -30,7 +30,8 @@ export function streamMessage(candidate: Candidate, page: Page, startAt: number)
   return playMessage({ kind: "stream", url: candidate.url, format: candidate.format, headers: candidate.headers }, page, startAt);
 }
 
-/** YouTube: the page itself, for yt-dlp in the app, with the site's cookie (spec §5.1). */
+/** The page itself, for yt-dlp in the app: a YouTube video's, with the site's cookie (spec §5.1),
+ *  or any other web page the user asked to try, which sends none. */
 export function pageMessage(page: Page, headers: Record<string, string>, startAt: number): PlayMessage {
   return playMessage({ kind: "page", url: page.url, headers }, page, startAt);
 }
@@ -41,6 +42,12 @@ function parse(url: string): URL | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** A page on the web: `http` or `https`, the only kinds a site can be asked about. */
+export function isWebPage(url: string): boolean {
+  const protocol = parse(url)?.protocol;
+  return protocol === "http:" || protocol === "https:";
 }
 
 /** Any page on YouTube. */

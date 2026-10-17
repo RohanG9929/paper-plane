@@ -31,7 +31,12 @@ function render(tabId: number, state: PopupState | undefined): void {
       element("p", "hint", "Start the video on this page, then click Paper Plane again."));
     return;
   }
-  main.append(element("h1", "heading", state.plan === "choose" ? "Which video?" : "Send to your TV"));
+  if (state.plan === "offer-page") {
+    main.append(element("h1", "heading", "No video found yet"),
+      element("p", "hint", "Start the video on this page, then click Paper Plane again, or have Paper Plane try the page."));
+  } else {
+    main.append(element("h1", "heading", state.plan === "choose" ? "Which video?" : "Send to your TV"));
+  }
   const list = element("div", "rows");
   for (const row of state.rows) {
     list.append(choice(row, () => void send(tabId, row.key)));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Candidate } from "../src/detector";
-import { failureText, isYouTubeVideo, pageMessage, startTime, streamMessage, tidyTitle } from "../src/message";
+import { failureText, isWebPage, isYouTubeVideo, pageMessage, startTime, streamMessage, tidyTitle } from "../src/message";
 
 const candidate: Candidate = {
   key: "https://cdn.example/v/master.m3u8", url: "https://cdn.example/v/master.m3u8?token=abc", format: "hls", frameId: 3,
@@ -22,6 +22,29 @@ describe("messages to Paper Plane", () => {
       type: "play", v: 1, source: { kind: "page", url: "https://www.youtube.com/watch?v=x", headers: { Cookie: "SID=1" } },
       pageUrl: "https://www.youtube.com/watch?v=x", title: "Clip", startAt: 3,
     });
+  });
+
+  it("send any other web page the same way, with no cookie unless it has one", () => {
+    expect(pageMessage({ url: "https://videos.example/watch?id=7", title: "  A  film \n" }, {}, 0)).toEqual({
+      type: "play", v: 1, source: { kind: "page", url: "https://videos.example/watch?id=7", headers: {} },
+      pageUrl: "https://videos.example/watch?id=7", title: "A film", startAt: 0,
+    });
+  });
+
+  it.each([
+    ["https://news.example/story", true],
+    ["http://videos.example/watch?id=7", true],
+    ["HTTPS://VIDEOS.EXAMPLE/", true],
+    ["about:blank", false],
+    ["chrome://extensions/", false],
+    ["chrome-extension://abcdefgh/popup.html", false],
+    ["file:///Users/me/film.mp4", false],
+    ["ftp://files.example/film.mp4", false],
+    ["javascript:alert(1)", false],
+    ["not a url", false],
+    ["", false],
+  ])("knows %s is on the web: %s", (url, expected) => {
+    expect(isWebPage(url)).toBe(expected);
   });
 
   it.each([

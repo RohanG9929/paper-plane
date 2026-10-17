@@ -4,7 +4,7 @@ import { classify } from "./classify";
 import { failureText, hostName, pageMessage, startTime, streamMessage } from "./message";
 import { navigated, newTab, observe, pickHeaders, withVideos, type TabState } from "./tabs";
 import { videosFrom } from "./videos";
-import { button, plan, popupState, type SendResult, type Target } from "./view";
+import { button, plan, popupState, sendTarget, type SendResult, type Target } from "./view";
 
 const filter: chrome.webRequest.RequestFilter = {
   urls: ["<all_urls>"],
@@ -209,11 +209,7 @@ async function answerPopup(message: Record<string, unknown>): Promise<unknown> {
     return popupState(tab, current);
   }
   if (message.type === "send") {
-    const candidate = typeof message.key === "string"
-      ? tab.candidates.find((found) => found.key === message.key && found.variantOf === undefined)
-      : undefined;
-    const target: Target | undefined = candidate ? { kind: "stream", candidate }
-      : current.kind === "send" ? current.target : undefined;
+    const target = sendTarget(tab, current, message.key);
     return target ? send(tabId, target) : { error: "That video isn't on this page any more." };
   }
   return undefined;

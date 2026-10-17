@@ -1,13 +1,16 @@
 // What the toolbar button and its popup show (spec §5.1): grey with nothing found, a click to
-// send when one video is the clear choice, a count and a chooser when it isn't.
+// send when one video is the clear choice, a count and a chooser when it isn't. With nothing
+// found on a web page the button stays grey, but its popup offers to try the page itself.
 import { choose, videosOf, type Candidate, type FrameVideo } from "./detector";
-import { isYouTubeVideo } from "./message";
+import { isWebPage, isYouTubeVideo } from "./message";
 import type { TabState } from "./tabs";
 
 export type Target = { kind: "page" } | { kind: "stream"; candidate: Candidate };
 
 export type Plan =
   | { kind: "none" }
+  /** Nothing was found on this web page, but the popup can ask Paper Plane to try the page. */
+  | { kind: "offer-page" }
   | { kind: "send"; target: Target }
   | { kind: "choose"; ranked: Candidate[] };
 
@@ -20,7 +23,7 @@ export interface ButtonView {
 }
 
 export interface Row {
-  /** The stream's key; none for what the button would send (a YouTube page). */
+  /** The stream's key; none for the page itself (a YouTube video's, or one to try). */
   key?: string;
   label: string;
   detail: string;
@@ -42,14 +45,15 @@ export function plan(tab: TabState, pageUrl: string | undefined, now: number): P
   }
   const choice = choose(tab.candidates, tab.videos, now);
   switch (choice.kind) {
-    case "none": return { kind: "none" };
+    case "none": return isWebPage(pageUrl ?? "") ? { kind: "offer-page" } : { kind: "none" };
     case "one": return { kind: "send", target: { kind: "stream", candidate: choice.candidate } };
     case "several": return { kind: "choose", ranked: choice.ranked };
   }
 }
 
 export function button(tab: TabState, plan: Plan, sending: boolean): ButtonView {
-  const icon = plan.kind === "none" ? "idle" : "ready";
+  // Lit only for a video that was found: offering to try a page is no promise it has one.
+  const icon = plan.kind === "none" || plan.kind === "offer-page" ? "idle" : "ready";
   if (sending) {
     return { icon, badge: "…", popup: false, title: "Sending to Paper Plane…" };
   }
@@ -58,6 +62,7 @@ export function button(tab: TabState, plan: Plan, sending: boolean): ButtonView 
   }
   switch (plan.kind) {
     case "none": return { icon, badge: "", popup: true, title: "Paper Plane: no video found yet" };
+    case "offer-page": return { icon, badge: "", popup: true, title: "Paper Plane: no video found — try this page?" };
     case "send": return { icon, badge: "", popup: false, title: "Send this video to your TV with Paper Plane" };
     case "choose": return { icon, badge: String(plan.ranked.length), popup: true, title: "Paper Plane: choose a video" };
   }
@@ -67,12 +72,30 @@ export function popupState(tab: TabState, plan: Plan): PopupState {
   let offered: Row[] = [];
   if (plan.kind === "choose") {
     offered = rows(plan.ranked, tab.videos);
+  } else if (plan.kind === "offer-page") {
+    offered = [{ label: "Try this page", detail: "Paper Plane will ask the site for a video" }];
   } else if (plan.kind === "send") {
     offered = plan.target.kind === "page"
       ? [{ label: "This YouTube video", detail: "Paper Plane gets it from YouTube" }]
       : rows([plan.target.candidate], tab.videos);
   }
   return { plan: plan.kind, rows: offered, ...(tab.error ? { error: tab.error } : {}) };
+}
+
+/** What a popup send is for: the stream a row's `key` names, else what the plan sends, else, for
+ *  the row with no key, the page itself, which a page offered to try is. A stale key (the tab has
+ *  moved on) never turns into sending the page the popup merely offered to try. */
+export function sendTarget(tab: TabState, plan: Plan, key: unknown): Target | undefined {
+  if (typeof key === "string") {
+    const candidate = tab.candidates.find((found) => found.key === key && found.variantOf === undefined);
+    if (candidate) {
+      return { kind: "stream", candidate };
+    }
+  }
+  if (plan.kind === "send") {
+    return plan.target;
+  }
+  return plan.kind === "offer-page" && typeof key !== "string" ? { kind: "page" } : undefined;
 }
 
 const formatNames = { hls: "HLS stream", dash: "DASH stream", progressive: "Video file" } as const;

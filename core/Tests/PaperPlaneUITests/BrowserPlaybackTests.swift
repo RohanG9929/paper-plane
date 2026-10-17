@@ -127,19 +127,6 @@ struct BrowserPlaybackTests {
             == "Converting the video stopped part-way through.")
     }
 
-    /// Only YouTube pages go to yt-dlp from the browser (Milestone 4, decision 10); another
-    /// page asks nothing of what's playing.
-    @Test func aPageThatIsntYouTubesLeavesWhatIsPlayingAlone() async throws {
-        let controller = Self.controller(try PlaybackControllerMediaTests.environment())
-        controller.play([UITestMedia.file("h264_aac.mp4")])
-        await PlaybackControllerTests.eventually { controller.phase == .waitingForTV }
-        let reply = await controller.play(try Self.request(URL(string: "https://videos.example/watch?v=x")!, kind: "page"))
-        #expect(reply == .failed("Paper Plane takes only YouTube pages from the browser."))
-        #expect(controller.phase == .waitingForTV)
-        #expect(controller.title == "h264_aac")
-        await controller.shutDown()
-    }
-
     @Test func aNewerVideoTakesOverAnUnansweredRequest() async throws {
         let server = try await UITestServer(directory: UITestMedia.file(""))
         defer { server.stop() }

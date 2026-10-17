@@ -306,8 +306,8 @@ public final class PlaybackController {
 
     /// Plays a video sent from the browser (spec §5.3), `startAt` seconds in, and answers once
     /// it's ready for the TV or with why it can't play, so the browser pauses only when Paper
-    /// Plane has it. A page goes to yt-dlp first, and only YouTube's are taken (Milestone 4,
-    /// decision 10). What can't be played leaves what's playing alone.
+    /// Plane has it. A page goes to yt-dlp first, whatever the site, as a copied link does; one
+    /// it can't make a video of fails with why.
     public func play(_ request: PlayRequest) async -> PlayReply {
         if let refusal = Self.refusal(of: request) {
             return .failed(refusal)
@@ -323,11 +323,11 @@ public final class PlaybackController {
         }
     }
 
-    /// Why Paper Plane won't play what the browser sent, or nil when it will: pages only from
-    /// YouTube.
+    /// Why Paper Plane won't play what the browser sent, or nil when it will: every stream, and
+    /// every page, since the toolbar button can try any site. What can't be played fails when it's
+    /// tried.
     public static func refusal(of request: PlayRequest) -> String? {
         switch request.source {
-        case .page(let url, _) where !Links.isYouTubePage(url): "Paper Plane takes only YouTube pages from the browser."
         case .stream, .page: nil
         }
     }

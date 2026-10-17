@@ -78,16 +78,30 @@ struct PagePlaybackTests {
         return PlaybackController(environment: environment, showsWelcome: false, welcomeSeen: {})
     }
 
-    @Test func onlyYouTubePagesAreTakenFromTheBrowser() async throws {
-        let refusing = FakeYtDlpService([FakeYtDlpService.failing(.unsupported)])
-        let refused = Self.controller(refusing)
-        for page in ["https://example.com/watch?v=1", "https://youtube.com.example.net/watch?v=1",
-                     "http://www.youtube.com/watch?v=1", "https://notyoutube.com/watch?v=1"] {
-            let reply = await refused.play(try Self.page(URL(string: page)!))
-            #expect(reply == .failed("Paper Plane takes only YouTube pages from the browser."), "\(page)")
+    /// The toolbar button can try any page, not only YouTube's: it goes to yt-dlp as a copied link
+    /// does, whatever the site, and is never turned away for its address.
+    @Test func aNonYouTubePageFromTheButtonResolvesViaYtDlp() async throws {
+        let pages = ["https://videos.example/watch?v=1", "http://videos.example/clip/7", "https://example.com/watch?v=1",
+                     "https://youtube.com.example.net/watch?v=1", "http://www.youtube.com/watch?v=1",
+                     "https://notyoutube.com/watch?v=1"]
+        for page in pages {
+            #expect(PlaybackController.refusal(of: try Self.page(URL(string: page)!, cookie: nil)) == nil, "\(page)")
         }
-        #expect(refusing.calls.isEmpty)
-        #expect(refused.phase == .idle)
+        let service = FakeYtDlpService([FakeYtDlpService.hangs])
+        let controller = Self.controller(service)
+        for (index, page) in pages.enumerated() {
+            let request = try Self.page(URL(string: page)!, cookie: nil)
+            Task { await controller.play(request) }
+            await PlaybackControllerTests.eventually { service.calls.count == index + 1 }
+        }
+        #expect(service.calls.map(\.page.absoluteString) == pages)
+        #expect(service.calls.allSatisfy { $0.cookie == nil }) // the extension sends a site's cookie only for YouTube's
+        #expect(controller.phase == .preparing)
+        controller.stop()
+    }
+
+    /// A YouTube page, in any of its forms, still goes to yt-dlp.
+    @Test func aYouTubePageInAnyFormGoesToYtDlp() async throws {
         let service = FakeYtDlpService([FakeYtDlpService.hangs])
         let controller = Self.controller(service)
         for (index, page) in ["https://youtu.be/aqz-KE-bpKQ", "https://m.youtube.com/watch?v=1", "https://youtube.com/shorts/1"].enumerated() {
@@ -98,6 +112,25 @@ struct PagePlaybackTests {
         #expect(service.calls.map(\.page.absoluteString) == ["https://youtu.be/aqz-KE-bpKQ", "https://m.youtube.com/watch?v=1",
                                                               "https://youtube.com/shorts/1"])
         controller.stop()
+    }
+
+    /// A page yt-dlp can't make a video of fails in the words a copied link to it would, under
+    /// the tab's own title, and the browser is told so it doesn't pause its video.
+    @Test func anUnresolvablePageFromTheButtonSaysWhy() async throws {
+        let page = URL(string: "https://videos.example/watch?v=1")!
+        let failures: [(YtDlpFailure, String)] = [
+            (.noPlayableFormat, "Paper Plane can't play this site's kind of stream yet."),
+            (.unsupported, "Paper Plane didn't find a video at this link."),
+        ]
+        for (failure, message) in failures {
+            let service = FakeYtDlpService([FakeYtDlpService.failing(failure)])
+            let controller = Self.controller(service)
+            let reply = await controller.play(try Self.page(page, cookie: nil, title: "A clip"))
+            #expect(reply == .failed(message), "\(failure)")
+            #expect(controller.phase == .failed(message), "\(failure)")
+            #expect(controller.title == "A clip", "\(failure)")
+            #expect(service.calls.first == .init(page: page, cookie: nil, title: "A clip"), "\(failure)")
+        }
     }
 
     /// Review Focus 1: YouTube's reason, in plain words; nothing else is touched.

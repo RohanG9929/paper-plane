@@ -25,7 +25,7 @@ public enum Links {
         return VideoFiles.isVideo(extension: url.pathExtension) ? ResolvedInput(inputs: [.init(url: url)], title: title) : nil
     }
 
-    /// Pages the browser may send for yt-dlp: YouTube's, over HTTPS (the extension sends no others).
+    /// A YouTube page, over HTTPS with no port. (The browser may send any page for yt-dlp now.)
     public static func isYouTubePage(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https", url.port == nil, let host = url.host()?.lowercased() else { return false }
         return host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com")

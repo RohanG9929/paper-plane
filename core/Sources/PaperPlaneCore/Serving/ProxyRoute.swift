@@ -100,7 +100,8 @@ enum ManifestRewriter {
         case .dash:
             rewritten = rewritten
                 .replacing(#/(>\s*)(/[^<\s]*)/#) { "\($0.output.1)\(localPath($0.output.2))" }
-                .replacing(#/(\s(?:media|initialization|index|sourceURL|href)=")(/[^"]*)"/#) {
+                // After whitespace or a namespace prefix (`xlink:href`).
+                .replacing(#/((?:\s|:)(?:media|initialization|index|sourceURL|href)=")(/[^"]*)"/#) {
                     "\($0.output.1)\(localPath($0.output.2))\""
                 }
         }

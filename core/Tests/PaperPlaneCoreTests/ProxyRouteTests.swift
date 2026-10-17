@@ -93,7 +93,8 @@ struct ProxyRouteTests {
     /// A DASH manifest can name any host: a BaseURL, a remote element's xlink:href, a new
     /// manifest's Location. Every such address reaches ffmpeg as the proxy's, so ffmpeg can't be
     /// steered to fetch an external host itself (the proxy applies its checks to what it relays).
-    /// ffmpeg's DASH demuxer follows no xlink or Location at all; this holds either way.
+    /// ffmpeg's DASH demuxer follows no xlink or Location at all; this holds either way, whatever
+    /// form the address takes (absolute, `//host/x`, or `/x`).
     @Test func aDASHManifestCantSteerFFmpegToAnExternalHost() {
         let manifest = """
             <?xml version="1.0"?>
@@ -106,6 +107,8 @@ struct ProxyRouteTests {
                   <SegmentList><SegmentURL media="https://evil.example/s1.m4s"/></SegmentList>
                 </Representation></AdaptationSet>
               </Period>
+              <Period xlink:href="//evil.example/part2.mpd" xlink:actuate="onRequest"/>
+              <Period xlink:href="/evil/part3.mpd" xlink:actuate="onRequest"/>
             </MPD>
             """
         let rewritten = ManifestRewriter.rewrite(manifest, kind: .dash, from: URL(string: "https://media.example.com/v/m.mpd")!,
@@ -116,6 +119,10 @@ struct ProxyRouteTests {
         #expect(rewritten.contains(#"xlink:href="\#(proxied)part.mpd""#))
         #expect(rewritten.contains(#"media="\#(proxied)s1.m4s""#))
         #expect(rewritten.contains("<BaseURL>/t0k3n/0/https/evil.example/rep/</BaseURL>")) // on the proxy's own host
+        // A remote element's `//host/x` and `/x` are the proxy's too: the latter on the manifest's own host.
+        #expect(rewritten.contains(#"xlink:href="/t0k3n/0/https/evil.example/part2.mpd""#))
+        #expect(rewritten.contains(#"xlink:href="/t0k3n/0/https/media.example.com/evil/part3.mpd""#))
+        #expect(!rewritten.contains(#"href="//"#) && !rewritten.contains(#"href="/evil"#))
         // Nothing names the external host except by way of the proxy.
         let direct = rewritten.replacingOccurrences(of: "/t0k3n/0/https/evil.example/", with: "")
         #expect(!direct.contains("evil.example"))

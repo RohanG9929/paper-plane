@@ -340,7 +340,11 @@ public final class PlaybackController {
                        _ start: @escaping @MainActor () async -> PlayReply) -> Task<PlayReply, Never> {
         dismissWelcome()
         dismissNotice()
-        stop()
+        // Keep the player's current item until the new video's replaces it (in load()). Clearing it
+        // to nil ends external playback and releases the AirPlay route, which AVFoundation doesn't
+        // re-acquire for the next item, so the TV already chosen would have to be picked again
+        // (docs/sony-test-results.md, row 9). Swapping one item straight for another keeps the route.
+        stop(keepingPlayerItem: true)
         self.title = title
         self.origin = origin
         phase = .preparing
@@ -359,7 +363,16 @@ public final class PlaybackController {
         }
     }
 
+    /// Stops what's playing and returns to idle, releasing the AirPlay route: the next video has
+    /// its TV picked again. `begin()` keeps the route instead (`keepingPlayerItem`).
     public func stop() {
+        stop(keepingPlayerItem: false)
+    }
+
+    /// `keepingPlayerItem` leaves the player's current item in place so external playback — and so
+    /// the chosen TV — carries to the next video, which replaces the item directly. It's set only
+    /// by `begin()`, where another video is about to take over.
+    private func stop(keepingPlayerItem: Bool) {
         // A cancelled start or session change cleans up after itself (stopping ffmpeg, deleting
         // its folder); a stream has to be stopped, and converted subtitles deleted. Either way
         // shutDown() waits for it.
@@ -391,7 +404,9 @@ public final class PlaybackController {
         watchingEvents = nil
         player.pause()
         observeItem(nil)
-        player.replaceCurrentItem(with: nil)
+        if !keepingPlayerItem {
+            player.replaceCurrentItem(with: nil)
+        }
         title = nil
         detail = ""
         artwork = nil

@@ -52,14 +52,16 @@ jobs:
           scripts/make-test-media.sh
           python3 -I scripts/check-test-media.py
 
+      # Serially: on a three-core runner, suites converting video in parallel starve the tests
+      # that time a process spawn or a socket, and those then miss their "promptly" bounds.
       - name: Core and UI tests with Homebrew's ffmpeg
-        run: scripts/test-core.sh
+        run: scripts/test-core.sh --no-parallel
 
       - name: Core and UI tests with the bundled ffmpeg
         run: |
           export PAPERPLANE_FFMPEG="$PWD/vendor/ffmpeg/bin/ffmpeg"
           export PAPERPLANE_FFPROBE="$PWD/vendor/ffmpeg/bin/ffprobe"
-          scripts/test-core.sh
+          scripts/test-core.sh --no-parallel
 
       - name: Extension tests, types and build
         working-directory: extension

@@ -110,7 +110,7 @@ struct BridgeServerTests {
         let started = clock.now
         let reply = try await Self.exchangeRaw(Data(), socket: socket)
         #expect(reply.isEmpty) // closed without an answer…
-        #expect(clock.now - started < .seconds(2)) // …as soon as the limit passed
+        #expect(clock.now - started < TestSupport.promptly(2)) // …as soon as the limit passed
         #expect(await BridgeFixtures.relay(BridgeFixtures.play, socket: socket) == PlayReply.ok.encoded())
     }
 
@@ -198,7 +198,7 @@ struct HostRelayTests {
         let started = clock.now
         let reply = await BridgeFixtures.relay(BridgeFixtures.play, socket: BridgeFixtures.socket(), startLimit: 0.5)
         #expect(PlayReply.decode(reply) == .failed("Couldn't start Paper Plane."))
-        #expect(clock.now - started < .seconds(3))
+        #expect(clock.now - started < TestSupport.promptly(3))
     }
 
     @Test func givesUpWhenTheAppDoesntAnswer() async throws {

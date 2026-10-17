@@ -49,26 +49,26 @@ struct SidecarSubtitlesTests {
         let started = ContinuousClock.now
         let lookup = Task {
             await SidecarSubtitles.find(for: URL(fileURLWithPath: "/Movies/a.mkv")) { _ in
-                Thread.sleep(forTimeInterval: 5) // blocked, as on the prompt
+                Thread.sleep(forTimeInterval: 20) // blocked, as on the prompt
                 return ["a.srt"]
             }
         }
         try? await Task.sleep(for: .milliseconds(100))
         lookup.cancel()
         #expect(await lookup.value.isEmpty)
-        #expect(ContinuousClock.now - started < .seconds(2))
+        #expect(ContinuousClock.now - started < TestSupport.promptly(2))
     }
 
     @Test func aLookupCancelledBeforeItStartsReturnsAtOnce() async {
         let lookup = Task {
             withUnsafeCurrentTask { $0?.cancel() }
             return await SidecarSubtitles.find(for: URL(fileURLWithPath: "/Movies/a.mkv")) { _ in
-                Thread.sleep(forTimeInterval: 5)
+                Thread.sleep(forTimeInterval: 20)
                 return ["a.srt"]
             }
         }
         let started = ContinuousClock.now
         #expect(await lookup.value.isEmpty)
-        #expect(ContinuousClock.now - started < .seconds(2))
+        #expect(ContinuousClock.now - started < TestSupport.promptly(2))
     }
 }

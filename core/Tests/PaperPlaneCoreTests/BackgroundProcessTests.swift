@@ -19,7 +19,7 @@ struct BackgroundProcessTests {
         let started = ContinuousClock.now
         let status = await process.waitForExit()
         #expect(status == 3)
-        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(ContinuousClock.now - started < TestSupport.promptly(3))
     }
 
     @Test func signalsReachOnlyALiveProcess() async throws {

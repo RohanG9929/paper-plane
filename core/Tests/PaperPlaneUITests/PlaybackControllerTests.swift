@@ -23,8 +23,12 @@ struct PlaybackControllerTests {
     }
 
     /// Waits for a condition the controller reaches asynchronously.
+    /// How long `eventually` keeps checking: 5 seconds on a development Mac, 30 on GitHub's
+    /// shared runners, where converting even the ten-second test clips can take that long.
+    static let eventuallyTries = ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == nil ? 100 : 600
+
     static func eventually(_ condition: @MainActor () async -> Bool) async {
-        for _ in 0..<100 {
+        for _ in 0..<eventuallyTries {
             if await condition() {
                 return
             }

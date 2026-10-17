@@ -23,18 +23,10 @@ public enum ConversionPlanner {
 
     // MARK: - Video
 
-    /// Pixel formats Apple's decoders handle for each codec we copy. 10-bit H.264 ("Hi10P") isn't one.
-    private static let copyablePixelFormats: [VideoCodecName: Set<String>] = [
-        .h264: ["yuv420p", "yuvj420p"],
-        .hevc: ["yuv420p", "yuvj420p", "yuv420p10le"],
-    ]
-
     /// Copy what Apple can decode, unless subtitles are drawn into it; otherwise convert.
     static func videoAction(for track: VideoTrack, profile: OutputProfile, burningIn: Bool = false) -> VideoAction {
         let needsToneMap = track.hdr != nil && !profile.hdr
-        if !burningIn, let formats = copyablePixelFormats[track.codec],
-           formats.contains(track.pixelFormat ?? "yuv420p"),
-           !needsToneMap {
+        if !burningIn, track.isCopyPlayable, !needsToneMap {
             return .copy(track.codec)
         }
         let keepHDR = profile.hdr ? track.hdr : nil

@@ -87,6 +87,24 @@ public struct VideoTrack: Equatable, Sendable {
     public var variant: Int? = nil
 }
 
+extension VideoTrack {
+    /// Pixel formats Apple's decoders handle for each codec we copy. 10-bit H.264 ("Hi10P") isn't one.
+    private static let copyablePixelFormats: [VideoCodecName: Set<String>] = [
+        .h264: ["yuv420p", "yuvj420p"],
+        .hevc: ["yuv420p", "yuvj420p", "yuv420p10le"],
+    ]
+
+    /// Whether Apple can decode the track as it is, so it can be copied to the TV rather than
+    /// re-encoded. The one rule behind both the conversion plan and the choice of a variant.
+    var isCopyPlayable: Bool {
+        guard let formats = Self.copyablePixelFormats[codec] else { return false }
+        return formats.contains(pixelFormat ?? "yuv420p")
+    }
+
+    /// The smaller of width and height: 1080 for both 1920x1080 and 1080x1920.
+    fileprivate var shorterSide: Int { min(width, height) }
+}
+
 public struct AudioTrack: Equatable, Sendable {
     public var ref: TrackRef
     public var codec: AudioCodecName
@@ -127,16 +145,30 @@ public struct MediaInfo: Equatable, Sendable {
             subtitles: parts.flatMap(\.subtitles))
     }
 
-    /// An HLS master playlist lists every variant's streams. This keeps the best variant's video
-    /// (the tallest; the highest bandwidth among equals) and its audio, with any rendition the
-    /// variants share, so ffmpeg fetches only that variant. Anything without variants is
-    /// unchanged.
+    /// The tallest a variant may be, measured by its shorter side so portrait video counts the same.
+    /// A variant over it loses to any that fit: a 4K representation isn't played, and re-encoded,
+    /// when a 1080p one is on offer.
+    private static let variantCap = 1080
+
+    /// A master playlist (HLS, and DASH's representations) lists every variant's streams. This
+    /// keeps the one to play and its audio, with any rendition the variants share, so ffmpeg
+    /// fetches only that variant. Of those within `variantCap` it takes the tallest, a codec
+    /// Paper Plane copies over one it re-encodes among equals, then the highest bandwidth; when
+    /// every variant is over the cap it takes the smallest, to re-encode the least. Anything
+    /// without variants is unchanged.
     func keepingBestVariant() -> MediaInfo {
-        let best = video.compactMap { track in track.variant.map { (height: track.height, bandwidth: $0) } }
-            .max { ($0.height, $0.bandwidth) < ($1.height, $1.bandwidth) }
+        let variants = video.compactMap { track in track.variant.map { (track: track, bandwidth: $0) } }
+        var candidates = variants.filter { $0.track.shorterSide <= Self.variantCap }
+        if candidates.isEmpty, let smallest = variants.map(\.track.shorterSide).min() {
+            candidates = variants.filter { $0.track.shorterSide == smallest }
+        }
+        let best = candidates.max {
+            ($0.track.height, $0.track.isCopyPlayable ? 1 : 0, $0.bandwidth)
+                < ($1.track.height, $1.track.isCopyPlayable ? 1 : 0, $1.bandwidth)
+        }
         guard let best else { return self }
         var kept = self
-        kept.video = video.filter { $0.variant == best.bandwidth && $0.height == best.height }
+        kept.video = [best.track]
         kept.audio = audio.filter { $0.variant == nil || $0.variant == best.bandwidth }
         return kept
     }

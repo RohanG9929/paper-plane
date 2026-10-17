@@ -1,0 +1,75 @@
+# Builds Paper Plane and attaches it to a GitHub Release whenever a version tag is pushed:
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The tag must match the app's MARKETING_VERSION. The app is signed only ad hoc until the owner
+# adds a Developer ID (spec §10), so the Release's notes say how to open it the first time.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # to create the Release and upload its files
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      # The same toolchain CI builds and tests with (see ci.yml).
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The tag must name the app's own version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="$(sed -nE 's/.*MARKETING_VERSION = ([^;]+);.*/\1/p' app/PaperPlane.xcodeproj/project.pbxproj | head -1)"
+          [[ "$TAG" == "$VERSION" ]] || { echo "::error::tag v$TAG, but the app is version $VERSION (MARKETING_VERSION)"; exit 1; }
+
+      - name: Restore the bundled ffmpeg
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: vendor/ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+
+      - name: Build the bundled ffmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install meson ninja autoconf automake libtool pkgconf
+          scripts/build-ffmpeg.sh
+
+      - name: Save the bundled ffmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: vendor/ffmpeg
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
+
+      - name: Fetch the yt-dlp the app ships
+        run: scripts/fetch-yt-dlp.sh
+
+      - name: Install the extension's dependencies
+        working-directory: extension
+        run: npm ci --ignore-scripts
+
+      # Tests the extension, builds the app in Release with ffmpeg and yt-dlp inside, checks that
+      # everything is there, and writes the dmg, the zips and SHA256SUMS to build/release/.
+      - name: Build the release
+        run: scripts/make-release.sh
+
+      - name: Attach it to the Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/release/*.dmg
+            build/release/*.zip
+            build/release/SHA256SUMS
+          generate_release_notes: true
+          body: |
+            Open the `.dmg` and drag Paper Plane to Applications. The first time, macOS will say it can't check the app, because this release isn't signed with an Apple Developer ID yet: right-click Paper Plane in Applications and choose Open, or go to System Settings → Privacy & Security and click Open Anyway.
+
+            `SHA256SUMS` lists each file's checksum. The extension zip is for Chrome and Brave: see the README.

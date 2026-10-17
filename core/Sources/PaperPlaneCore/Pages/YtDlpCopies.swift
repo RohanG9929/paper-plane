@@ -25,8 +25,9 @@ public struct YtDlpVersion: Comparable, Sendable, CustomStringConvertible {
 }
 
 /// The copies of yt-dlp Paper Plane may run (Milestone 4, decision 3): the one it ships in
-/// `Contents/Helpers/` and the one the updater keeps in Application Support, each with a
-/// `yt-dlp.version` beside it. The newer runs.
+/// `Contents/Helpers/`, its `yt-dlp.version` among the app's resources (a text file among the
+/// helpers would stop the app signing: macOS takes everything there for code), and the one the
+/// updater keeps in Application Support with its `yt-dlp.version` beside it. The newer runs.
 public struct YtDlpCopies: Sendable {
     public struct Copy: Equatable, Sendable {
         public var executable: URL
@@ -60,11 +61,17 @@ public struct YtDlpCopies: Sendable {
     }
 
     var shipped: Copy? {
-        copy(in: ToolPaths.helpers(inBundle: bundle))
+        copy(in: ToolPaths.helpers(inBundle: bundle), version: Self.shippedVersionFile(inBundle: bundle))
     }
 
     var updated: Copy? {
-        copy(in: updatedFolder)
+        copy(in: updatedFolder, version: updatedFolder.appendingPathComponent("yt-dlp.version"))
+    }
+
+    /// Where the shipped copy's version is recorded: `Contents/Resources/yt-dlp.version`, not
+    /// beside the executable in `Contents/Helpers/`, where macOS expects only code it can sign.
+    public static func shippedVersionFile(inBundle bundle: URL) -> URL {
+        bundle.appendingPathComponent("Contents/Resources/yt-dlp.version")
     }
 
     /// The copy to run, or nil when there's none.
@@ -83,11 +90,10 @@ public struct YtDlpCopies: Sendable {
         }
     }
 
-    private func copy(in folder: URL) -> Copy? {
+    private func copy(in folder: URL, version versionFile: URL) -> Copy? {
         let executable = folder.appendingPathComponent("yt-dlp")
         guard FileManager.default.isExecutableFile(atPath: executable.path) else { return nil }
-        let version = (try? String(contentsOf: folder.appendingPathComponent("yt-dlp.version"), encoding: .utf8))
-            .flatMap(YtDlpVersion.init)
+        let version = (try? String(contentsOf: versionFile, encoding: .utf8)).flatMap(YtDlpVersion.init)
         return Copy(executable: executable, version: version)
     }
 

@@ -76,12 +76,14 @@ struct YtDlpUpdaterTests {
         let root = try TestSupport.makeTemporaryDirectory()
         let bundle = root.appendingPathComponent("Paper Plane.app")
         let helpers = bundle.appendingPathComponent("Contents/Helpers")
+        let resources = bundle.appendingPathComponent("Contents/Resources")
         try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
         if let shipped {
             let executable = helpers.appendingPathComponent("yt-dlp")
             try Data("#!/bin/sh\necho shipped\n".utf8).write(to: executable)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
-            try "\(shipped)\n".write(to: helpers.appendingPathComponent("yt-dlp.version"), atomically: true, encoding: .utf8)
+            try "\(shipped)\n".write(to: resources.appendingPathComponent("yt-dlp.version"), atomically: true, encoding: .utf8)
         }
         return YtDlpCopies(bundle: bundle, updatedFolder: root.appendingPathComponent("Paper Plane/bin"),
                            fallsBackToInstalled: false)

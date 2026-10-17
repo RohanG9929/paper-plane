@@ -52,15 +52,15 @@ If you've used Beamer, it's the same idea, free and open source.
 
 ## Install
 
-There's no download yet. Paper Plane works on the Mac it's built on and is being tried out on a Sony TV now. The first release will be signed and notarized by Apple, so it opens like any other app. Until then, [build it yourself](#building-from-source).
+Download `Paper-Plane-<version>.dmg` from the [Releases page](https://github.com/RohanG9929/paper-plane/releases), open it and drag Paper Plane to Applications. Each release also has the extension as a zip and a `SHA256SUMS` file to check the downloads against. Or [build it yourself](#building-from-source).
 
-If a release turns up before it's notarized, macOS will say it can't check it. Open System Settings → Privacy & Security and click Open Anyway. The first time you play a video, allow Paper Plane to find devices on your local network.
+Releases aren't signed with an Apple Developer ID yet, so the first time you open Paper Plane, macOS will say it can't check it: right-click (or Control-click) the app in Applications and choose Open, or go to System Settings → Privacy & Security and click Open Anyway. The first time you play a video, allow Paper Plane to find devices on your local network.
 
 ### The browser extension
 
 For videos playing in Chrome or Brave:
 
-1. Build it: `cd extension && npm ci --ignore-scripts && npm run build`.
+1. Unzip `Paper-Plane-Extension-<version>.zip` from the release, or build it: `cd extension && npm ci --ignore-scripts && npm run build` (it lands in `extension/dist`).
 2. Open `chrome://extensions`, turn on Developer mode, click Load unpacked and choose `extension/dist`.
 3. Open Paper Plane once, so the browser can reach it.
 

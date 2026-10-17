@@ -37,10 +37,15 @@ else
   rm -f "$DEST/ffmpeg" "$DEST/ffprobe"
 fi
 
+# The version goes among the resources, not beside the executable: macOS takes everything in
+# Helpers/ for code to sign, and a text file there stops the whole app signing.
+RESOURCES="$TARGET_BUILD_DIR/${UNLOCALIZED_RESOURCES_FOLDER_PATH:-$CONTENTS_FOLDER_PATH/Resources}"
+mkdir -p "$RESOURCES"
 if [ -x "$YTDLP/yt-dlp" ] && [ -f "$YTDLP/VERSION" ]; then
   embed "$YTDLP/yt-dlp" "$DEST/yt-dlp"
-  cp -f "$YTDLP/VERSION" "$DEST/yt-dlp.version"
+  cp -f "$YTDLP/VERSION" "$RESOURCES/yt-dlp.version"
 else
   echo "warning: vendor/yt-dlp is missing, so this build has no yt-dlp of its own. Run scripts/fetch-yt-dlp.sh."
-  rm -f "$DEST/yt-dlp" "$DEST/yt-dlp.version"
+  rm -f "$DEST/yt-dlp" "$RESOURCES/yt-dlp.version"
 fi
+rm -f "$DEST/yt-dlp.version" # where builds before this change put it

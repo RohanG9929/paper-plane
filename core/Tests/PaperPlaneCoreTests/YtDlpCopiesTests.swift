@@ -24,14 +24,16 @@ struct YtDlpCopiesTests {
         #expect(YtDlpVersion(text) == nil)
     }
 
-    func folders() throws -> (bundle: URL, helpers: URL, updated: URL) {
+    func folders() throws -> (bundle: URL, helpers: URL, resources: URL, updated: URL) {
         let root = try TestSupport.makeTemporaryDirectory()
         let bundle = root.appendingPathComponent("Paper Plane.app")
         let helpers = bundle.appendingPathComponent("Contents/Helpers")
+        let resources = bundle.appendingPathComponent("Contents/Resources")
         let updated = root.appendingPathComponent("Application Support/Paper Plane/bin")
         try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: updated, withIntermediateDirectories: true)
-        return (bundle, helpers, updated)
+        return (bundle, helpers, resources, updated)
     }
 
     func place(in folder: URL, version: String?) throws {
@@ -43,7 +45,16 @@ struct YtDlpCopiesTests {
         }
     }
 
-    func copies(_ f: (bundle: URL, helpers: URL, updated: URL), fallsBack: Bool = false,
+    /// The shipped copy: its executable among the helpers, its version among the resources.
+    func placeShipped(_ f: (bundle: URL, helpers: URL, resources: URL, updated: URL), version: String?) throws {
+        let helpers = f.helpers
+        try place(in: helpers, version: nil)
+        if let version {
+            try "\(version)\n".write(to: f.resources.appendingPathComponent("yt-dlp.version"), atomically: true, encoding: .utf8)
+        }
+    }
+
+    func copies(_ f: (bundle: URL, helpers: URL, resources: URL, updated: URL), fallsBack: Bool = false,
                 environment: [String: String] = [:], fallbackFolders: [String] = []) -> YtDlpCopies {
         YtDlpCopies(bundle: f.bundle, updatedFolder: f.updated, fallsBackToInstalled: fallsBack,
                     environment: environment, fallbackFolders: fallbackFolders)
@@ -51,12 +62,12 @@ struct YtDlpCopiesTests {
 
     @Test func theNewerCopyRuns() throws {
         let f = try folders()
-        try place(in: f.helpers, version: "2026.10.09")
+        try placeShipped(f, version: "2026.10.09")
         try place(in: f.updated, version: "2026.10.12")
         #expect(copies(f).current()?.executable == f.updated.appendingPathComponent("yt-dlp"))
         #expect(copies(f).current()?.version == YtDlpVersion("2026.10.12"))
         // An app updated since: its own copy is newer than the one downloaded before.
-        try "2026.11.01".write(to: f.helpers.appendingPathComponent("yt-dlp.version"), atomically: true, encoding: .utf8)
+        try "2026.11.01".write(to: f.resources.appendingPathComponent("yt-dlp.version"), atomically: true, encoding: .utf8)
         #expect(copies(f).current()?.executable == f.helpers.appendingPathComponent("yt-dlp"))
         // The same version: the one inside the app.
         try "2026.11.01".write(to: f.updated.appendingPathComponent("yt-dlp.version"), atomically: true, encoding: .utf8)
@@ -68,7 +79,7 @@ struct YtDlpCopiesTests {
         #expect(copies(f).current() == nil)
         try place(in: f.updated, version: "2026.10.12")
         #expect(copies(f).current()?.executable == f.updated.appendingPathComponent("yt-dlp"))
-        try place(in: f.helpers, version: "2026.10.01")
+        try placeShipped(f, version: "2026.10.01")
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: f.updated.appendingPathComponent("yt-dlp").path)
         #expect(copies(f).current()?.executable == f.helpers.appendingPathComponent("yt-dlp"), "not executable: not a copy")
     }
@@ -90,7 +101,7 @@ struct YtDlpCopiesTests {
 
     @Test func aCopyWithoutItsVersionLosesToOneWithIt() throws {
         let f = try folders()
-        try place(in: f.helpers, version: nil)
+        try placeShipped(f, version: nil)
         try place(in: f.updated, version: "2026.01.01")
         #expect(copies(f).current()?.executable == f.updated.appendingPathComponent("yt-dlp"))
         try FileManager.default.removeItem(at: f.updated.appendingPathComponent("yt-dlp.version"))

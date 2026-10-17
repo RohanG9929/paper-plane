@@ -20,7 +20,7 @@ APP="build/DerivedData/Build/Products/Release/Paper Plane.app"
 for tool in ffmpeg ffprobe yt-dlp paperplane-host; do
   [[ -x "$APP/Contents/Helpers/$tool" ]] || { echo "error: $tool is missing from the app" >&2; exit 1; }
 done
-[[ "$(cat "$APP/Contents/Helpers/yt-dlp.version")" == "$(cat vendor/yt-dlp/VERSION)" ]] \
+[[ "$(cat "$APP/Contents/Resources/yt-dlp.version")" == "$(cat vendor/yt-dlp/VERSION)" ]] \
   || { echo "error: the app's yt-dlp.version doesn't match vendor/yt-dlp" >&2; exit 1; }
 codesign --verify --deep --strict "$APP"
 
@@ -32,5 +32,14 @@ ditto -c -k --keepParent "$APP" "$OUT/Paper-Plane-$VERSION.zip"
 ditto extension/dist "$OUT/Paper Plane Extension"
 ditto -c -k --keepParent "$OUT/Paper Plane Extension" "$OUT/Paper-Plane-Extension-$VERSION.zip"
 rm -rf "$OUT/Paper Plane Extension"
-(cd "$OUT" && shasum -a 256 ./*.zip | tee SHA256SUMS)
+
+# A disk image as well, the usual way a Mac app is handed out: the app beside a shortcut to
+# Applications, so it's dragged across. The zip stays for anyone who'd rather have that.
+STAGE="$(mktemp -d)"
+ditto "$APP" "$STAGE/Paper Plane.app"
+ln -s /Applications "$STAGE/Applications"
+hdiutil create -quiet -volname "Paper Plane" -srcfolder "$STAGE" -ov -format UDZO "$OUT/Paper-Plane-$VERSION.dmg"
+rm -rf "$STAGE"
+
+(cd "$OUT" && shasum -a 256 ./*.dmg ./*.zip | tee SHA256SUMS)
 echo "Paper Plane $VERSION (yt-dlp $(cat vendor/yt-dlp/VERSION)) is in $OUT"

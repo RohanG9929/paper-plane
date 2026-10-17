@@ -31,6 +31,7 @@ SOURCES=(
   "fribidi 1.0.17 https://github.com/fribidi/fribidi/releases/download/v1.0.17/fribidi-1.0.17.tar.xz 6949dcde27d41cebad1fd741fcafc36d55a1020d2d872d4a6eb3914caabbada2"
   "harfbuzz 14.6.0 https://github.com/harfbuzz/harfbuzz/releases/download/14.6.0/harfbuzz-14.6.0.tar.xz d07a007327277708a2a73ae437887cdbaf282937f6d03ca5467723e9099af586"
   "libass 0.17.5 https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz 2dca25c0e0c837ddf00b52011b3f82cac1e4ddd3ad018227806b0c2288864acc"
+  "libxml2 2.13.5 https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.5.tar.xz 74fc163217a3964257d3be39af943e08861263c4231f9ef5b496b6f6d4c7b2b6"
 )
 
 for tool in meson ninja autoreconf glibtoolize pkg-config; do
@@ -109,6 +110,18 @@ echo "== building zimg" >&2
     >build.log 2>&1 || { tail -40 build.log >&2; exit 1; }
 )
 
+# libxml2: ffmpeg's general DASH (.mpd) demuxer needs it. Minimal static build — just the XML
+# parsing ffmpeg uses, no python/lzma/zlib/iconv, so the static .pc pulls in nothing extra.
+LIBXML2="$(source_dir libxml2)"
+echo "== building libxml2" >&2
+(
+  cd "$LIBXML2"
+  { ./configure --prefix="$DEPS" --disable-shared --enable-static \
+      --without-python --without-lzma --without-zlib --without-iconv --without-http \
+      && make -j"$JOBS" install; } \
+    >build.log 2>&1 || { tail -40 build.log >&2; exit 1; }
+)
+
 FFMPEG="$(source_dir ffmpeg)"
 echo "== building ffmpeg" >&2
 FFMPEG_CONFIGURE=(
@@ -118,7 +131,7 @@ FFMPEG_CONFIGURE=(
   --disable-shared --enable-static --pkg-config-flags=--static
   --disable-autodetect --enable-pthreads --enable-zlib --enable-bzlib --enable-iconv
   --enable-videotoolbox --enable-audiotoolbox --enable-securetransport
-  --enable-libass --enable-libdav1d --enable-libzimg
+  --enable-libass --enable-libdav1d --enable-libzimg --enable-libxml2
   --disable-ffplay --disable-doc --disable-debug
   --extra-cflags="-mmacosx-version-min=14.0" --extra-ldflags="-mmacosx-version-min=14.0" --extra-libs=-lc++
 )

@@ -38,11 +38,13 @@ DECODERS="$("$BIN/ffmpeg" -hide_banner -decoders 2>/dev/null)"
 FILTERS="$("$BIN/ffmpeg" -hide_banner -filters 2>/dev/null)"
 PROTOCOLS="$("$BIN/ffmpeg" -hide_banner -protocols 2>/dev/null)"
 BUILDCONF="$("$BIN/ffmpeg" -hide_banner -buildconf 2>/dev/null)"
+DEMUXERS="$("$BIN/ffmpeg" -hide_banner -demuxers 2>/dev/null)"
 codec() { grep -Eq "^ [A-Z.]{6} $2 " <<<"$1"; }
 filter() { grep -Eq "^ [A-Z.]{2,3} $1 " <<<"$FILTERS"; }
 protocol() { grep -Eqx "  $1" <<<"$PROTOCOLS"; }
 not() { ! "$@"; }
 configured() { grep -Eq -- "$1\$" <<<"$BUILDCONF"; }
+demuxer() { grep -Eq "^ *D.* $1 " <<<"$DEMUXERS"; }
 
 for tool in ffmpeg ffprobe; do
   check "$tool exists" test -x "$BIN/$tool"
@@ -64,6 +66,8 @@ check "subtitles filter (libass)" filter subtitles
 check "zscale filter (zimg)" filter zscale
 check "tonemap filter" filter tonemap
 check "https protocol" protocol https
+check "libxml2 (DASH) build" configured "--enable-libxml2"
+check "DASH demuxer" demuxer dash
 
 if ((FAILURES)); then
   echo "$FAILURES check(s) failed" >&2

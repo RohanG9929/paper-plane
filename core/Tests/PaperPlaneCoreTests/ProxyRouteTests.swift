@@ -130,6 +130,39 @@ struct ProxyRouteTests {
         #expect(rewritten.contains(#"xmlns:xlink="http://www.w3.org/1999/xlink""#))
     }
 
+    /// The segment-URL rewrite is quote-agnostic and tolerant of spaces around `=`: a hostile
+    /// manifest can't slip a scheme-relative (`//host/x`) or root-relative (`/x`) address past it
+    /// with single quotes or `media = "…"`. Left raw, ffmpeg's DASH demuxer would resolve such a
+    /// value against the proxied base (`http://127.0.0.1:…`) and fetch the external host directly
+    /// (http is whitelisted), bypassing the proxy's SSRF checks.
+    @Test func aDASHManifestsSingleQuotedAndSpacedSegmentURLsStayOnTheProxy() {
+        let manifest = """
+            <?xml version="1.0"?>
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <Period><AdaptationSet><Representation id="1"><SegmentList>
+                <SegmentURL media='//evil.example/single.m4s'/>
+                <SegmentURL media = "//evil.example/spaced.m4s"/>
+                <SegmentURL media='/evil/relative.m4s' initialization = '//evil.example/init.m4s'/>
+              </SegmentList></Representation></AdaptationSet></Period>
+            </MPD>
+            """
+        let rewritten = ManifestRewriter.rewrite(manifest, kind: .dash, from: URL(string: "https://media.example.com/v/m.mpd")!,
+                                                 input: 0, route: Self.route)
+        // A scheme-relative (`//host`) value becomes the proxy on the manifest's scheme, as a
+        // host-relative path (it resolves to the proxy, not the external host).
+        let proxied = "/t0k3n/0/https/evil.example/"
+        #expect(rewritten.contains(#"media='\#(proxied)single.m4s'"#)) // single-quoted `//host`
+        #expect(rewritten.contains(#"media = "\#(proxied)spaced.m4s""#)) // spaced `=`, double-quoted
+        #expect(rewritten.contains(#"initialization = '\#(proxied)init.m4s'"#)) // spaced `=`, single-quoted
+        // A single-quoted `/`-relative value maps to the proxy on the manifest's own host.
+        #expect(rewritten.contains(#"media='/t0k3n/0/https/media.example.com/evil/relative.m4s'"#))
+        // Nothing names the external host except by way of the proxy.
+        let direct = rewritten.replacingOccurrences(of: "/t0k3n/0/https/evil.example/", with: "")
+        #expect(!direct.contains("evil.example"))
+        // The namespace is a declaration, not an address to fetch: left exactly as it was.
+        #expect(rewritten.contains(#"xmlns:xlink="http://www.w3.org/1999/xlink""#))
+    }
+
     @Test func recognisesManifestsByTypeNameOrContent() {
         let url = URL(string: "https://cdn.example.com/v/playlist")!
         #expect(ManifestRewriter.kind(contentType: "application/vnd.apple.mpegurl", url: url, start: Data()) == .hls)

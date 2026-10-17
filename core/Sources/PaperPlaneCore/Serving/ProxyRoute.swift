@@ -100,9 +100,12 @@ enum ManifestRewriter {
         case .dash:
             rewritten = rewritten
                 .replacing(#/(>\s*)(/[^<\s]*)/#) { "\($0.output.1)\(localPath($0.output.2))" }
-                // After whitespace or a namespace prefix (`xlink:href`).
-                .replacing(#/((?:\s|:)(?:media|initialization|index|sourceURL|href)=")(/[^"]*)"/#) {
-                    "\($0.output.1)\(localPath($0.output.2))\""
+                // After whitespace or a namespace prefix (`xlink:href`), in either quote and with or
+                // without spaces around `=`. The value must start with `/`, so an absolute URL (by
+                // now already the proxy's) and an `xmlns` declaration (starts with `http`) are left
+                // alone; the matching closing quote is a backreference, so `'…'` closes on `'`.
+                .replacing(#/((?:\s|:)(?:media|initialization|index|sourceURL|href)\s*=\s*)(?<quote>["'])(/[^"']*)\k<quote>/#) {
+                    "\($0.output.1)\($0.output.quote)\(localPath($0.output.3))\($0.output.quote)"
                 }
         }
         return rewritten

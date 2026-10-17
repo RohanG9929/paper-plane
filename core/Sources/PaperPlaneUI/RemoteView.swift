@@ -531,7 +531,10 @@ struct TracksMenu: View {
     private var menu: some View {
         Menu {
             if state.showsAudioChoices {
-                Picker("Audio", selection: Binding(get: { state.audio ?? "" }, set: selectAudio)) {
+                // Wrapped rather than passed as is: handing the stored @MainActor closure straight
+                // to Binding's generic setter makes Swift 6.3's compiler crash while emitting the
+                // conversion thunk (CI's Xcode 26.6); a closure literal needs no such thunk.
+                Picker("Audio", selection: Binding(get: { state.audio ?? "" }, set: { selectAudio($0) })) {
                     ForEach(state.audioChoices) { Text($0.name).tag($0.id) }
                 }
                 .pickerStyle(.inline)

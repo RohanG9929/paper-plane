@@ -11,6 +11,10 @@ jobs:
   test-and-build:
     runs-on: macos-26
     timeout-minutes: 60
+    env:
+      # Pinned, so a change to the runner image can't move the toolchain under us. Xcode 26.6's
+      # Swift (6.3.3) crashes on one closure shape; RemoteView's TracksMenu says how it's avoided.
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
 
@@ -19,7 +23,7 @@ jobs:
 
       - name: Restore the bundled ffmpeg
         id: ffmpeg-cache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: vendor/ffmpeg
           key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-ffmpeg.sh') }}
@@ -29,6 +33,15 @@ jobs:
         run: |
           brew install meson ninja autoconf automake libtool pkgconf
           scripts/build-ffmpeg.sh
+
+      # Saved as soon as it's built rather than when the job ends: a failure later on (a test,
+      # say) must not throw away a twenty-minute ffmpeg build.
+      - name: Save the bundled ffmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: vendor/ffmpeg
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
 
       - name: Check the bundled ffmpeg
         run: scripts/check-ffmpeg.sh

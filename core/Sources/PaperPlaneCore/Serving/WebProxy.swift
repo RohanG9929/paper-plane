@@ -186,8 +186,9 @@ public final class WebProxy: Sendable {
                 await respond(on: connection, status: response.statusCode, headers: ["Content-Type": type],
                               body: Data(rewritten.utf8))
             case .refused:
-                // An address in it would have reached ffmpeg unproxied: don't hand it over.
-                log.error("Refused a manifest whose addresses would bypass the proxy")
+                // Couldn't be made safe for ffmpeg (an off-proxy address, a DTD, or unparseable):
+                // don't hand it over.
+                log.error("Refused an unsafe manifest")
                 blocked.withLock { $0 = true }
                 await respond(on: connection, status: 502)
             }

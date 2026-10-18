@@ -227,6 +227,29 @@ struct ProxyRouteTests {
         #expect(Self.dash(manifest) == .refused)
     }
 
+    /// A BaseURL or Location holds only text in real DASH, but a hostile manifest can nest an empty
+    /// element so the address sits in the text *after* it. ffmpeg reads the element's whole content
+    /// (xmlNodeGetContent concatenates every descendant's text), so it would still see `//evil…`,
+    /// while a linear scan that stops at the nested tag's end would miss it. Any element nested inside
+    /// a BaseURL/Location is refused — real DASH never nests them.
+    @Test(arguments: [
+        "<BaseURL><BaseURL/>&#47;/evil.example/seg/</BaseURL>",       // address in the tail after a nested empty tag
+        "<BaseURL><Location/><![CDATA[//evil.example/seg/]]></BaseURL>", // the tail in a CDATA section
+        "<Location><Period/>&#47;/evil.example/new.mpd</Location>",   // same shape in a Location
+        "<BaseURL><x/>media.example.com/seg/</BaseURL>",              // any child at all is refused, benign tail or not
+    ])
+    func refusesANestedElementInsideABaseURLOrLocation(_ hostile: String) {
+        let manifest = """
+            <?xml version="1.0"?>
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <Period><AdaptationSet><Representation id="1">
+                \(hostile)
+              </Representation></AdaptationSet></Period>
+            </MPD>
+            """
+        #expect(Self.dash(manifest) == .refused)
+    }
+
     /// A DTD lets a manifest define its own entities, which parsers may expand differently or not at
     /// all — the kind of gap the rewriter can't reason about. Real DASH carries none, so any manifest
     /// that declares a DOCTYPE or an entity is refused outright, used in a URL or not.

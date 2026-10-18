@@ -809,10 +809,11 @@ enum PlaybackError: Error {
         "The site stopped the stream — \(origin.again)."
     }
 
-    /// A manifest blocked because an address in it would have reached ffmpeg unproxied. Not the
-    /// site's fault to retry around: it's a safety stop, so the message says so plainly.
+    /// A manifest the proxy couldn't make safe for ffmpeg — an address that would leave the proxy,
+    /// or one it couldn't verify (a DTD, or XML it can't parse). Not the site's fault to retry
+    /// around, and not always malice, so the message is a plain safety stop without pinning a cause.
     static var unsafeStream: String {
-        "Paper Plane blocked this video to keep your Mac safe: its stream pointed to another server it won't fetch from."
+        "Paper Plane blocked this video's stream as a safety precaution."
     }
 
     /// A plain-language message for the remote. A video from the web isn't a file to try again.

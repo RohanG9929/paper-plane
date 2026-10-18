@@ -169,11 +169,15 @@ private final class DASHURLScanner: NSObject, XMLParserDelegate {
     /// True until a fetchable address is found that wouldn't resolve to the proxy.
     private(set) var safe = true
     private let route: ProxyRoute
-    /// Attributes whose value is a URL wherever they appear in DASH: SegmentTemplate/SegmentURL
-    /// media, initialization and index; Initialization/BitstreamSwitching/RepresentationIndex
-    /// sourceURL; and xlink:href. (`mediaRange`/`indexRange` are byte ranges, so the match is exact.)
+    /// Every attribute ffmpeg's DASH demuxer fetches as a URL, plus a defensive few it doesn't.
+    /// Checked against libavformat/dashdec.c (ffmpeg 9.0.2): it fetches `media` and `initialization`
+    /// (SegmentTemplate) and `media` and `sourceURL` (SegmentURL/Initialization). `index` and `href`
+    /// (xlink) aren't fetched by that ffmpeg but are kept — over-checking only ever refuses more,
+    /// never less. `bitstreamSwitching`, `mediaRange` and `indexRange` aren't URLs it fetches, so
+    /// they're left out (exact match, so `mediaRange` can't trip `media`).
     private static let urlAttributes: Set<String> = ["media", "initialization", "index", "sourceURL", "href"]
-    /// Elements whose text content is a URL: a BaseURL, or a Location for a manifest update.
+    /// Elements whose text content is a URL: BaseURL (ffmpeg resolves every segment against it) and
+    /// Location (a manifest-update URL; not fetched by ffmpeg 9.0.2's dashdec, kept defensively).
     private static let urlElements: Set<String> = ["BaseURL", "Location"]
     private var capturing = false
     private var text = ""
@@ -220,9 +224,13 @@ private final class DASHURLScanner: NSObject, XMLParserDelegate {
         for (name, value) in attributeDict where Self.urlAttributes.contains(localName(name)) {
             check(value)
         }
-        // Don't restart a capture already under way (a nested element): keep the outer element's text
-        // whole, since ffmpeg reads a BaseURL's entire content, descendants included.
-        if !capturing, Self.urlElements.contains(localName(elementName)) {
+        if capturing {
+            // A child element inside a BaseURL/Location. ffmpeg reads such an element's whole text
+            // content (xmlNodeGetContent concatenates every descendant's text), so an address can
+            // hide in the text that follows a nested empty tag — content a linear scan can't
+            // reassemble in ffmpeg's order. Real DASH never nests these, so refuse rather than miss it.
+            safe = false
+        } else if Self.urlElements.contains(localName(elementName)) {
             capturing = true
             text = ""
         }

@@ -532,7 +532,8 @@ public final class PlaybackController {
         // controller's business, and acting on it would stop the newer video.
         guard !Task.isCancelled, !(error is CancellationError) else { return replaced }
         log.error("Couldn't play \(title, privacy: .private): \(String(describing: error), privacy: .private)")
-        let message = PlaybackError.message(for: error, origin: origin)
+        let message = proxy?.blockedUnsafeManifest == true ? PlaybackError.unsafeStream
+            : PlaybackError.message(for: error, origin: origin)
         fail(message, error: error)
         return .failed(message)
     }
@@ -656,8 +657,12 @@ public final class PlaybackController {
                 }
             case .failed(let message):
                 log.error("ffmpeg failed: \(message, privacy: .private)")
-                let stopped = ConversionStopped(message: message)
-                fail(PlaybackError.message(for: stopped, origin: origin), error: stopped)
+                if proxy?.blockedUnsafeManifest == true {
+                    fail(PlaybackError.unsafeStream)
+                } else {
+                    let stopped = ConversionStopped(message: message)
+                    fail(PlaybackError.message(for: stopped, origin: origin), error: stopped)
+                }
             }
         }
     }
@@ -802,6 +807,12 @@ enum PlaybackError: Error {
     /// to be fetched again.
     static func siteStopped(_ origin: VideoOrigin) -> String {
         "The site stopped the stream — \(origin.again)."
+    }
+
+    /// A manifest blocked because an address in it would have reached ffmpeg unproxied. Not the
+    /// site's fault to retry around: it's a safety stop, so the message says so plainly.
+    static var unsafeStream: String {
+        "Paper Plane blocked this video to keep your Mac safe: its stream pointed to another server it won't fetch from."
     }
 
     /// A plain-language message for the remote. A video from the web isn't a file to try again.

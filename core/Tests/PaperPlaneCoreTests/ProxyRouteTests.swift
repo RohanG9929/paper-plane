@@ -37,7 +37,7 @@ struct ProxyRouteTests {
     /// Relative URLs already resolve to the proxy; absolute, root-relative and protocol-relative
     /// ones are rewritten, so nothing in a playlist reaches ffmpeg as an address it would fetch
     /// directly.
-    @Test func rewritesAnHLSPlaylist() {
+    @Test func rewritesAnHLSPlaylist() throws {
         let playlist = """
             #EXTM3U
             #EXT-X-KEY:METHOD=AES-128,URI="https://keys.example.com/k?id=1"
@@ -52,8 +52,9 @@ struct ProxyRouteTests {
             #EXTINF:6.0,
             //cdn2.example.com/seg-4.ts
             """
-        let rewritten = ManifestRewriter.rewrite(playlist, kind: .hls, from: URL(string: "https://cdn.example.com/v/index.m3u8")!,
-                                                 input: 0, route: Self.route)
+        let rewritten = try #require(ManifestRewriter.rewrite(playlist, kind: .hls,
+                                                              from: URL(string: "https://cdn.example.com/v/index.m3u8")!,
+                                                              input: 0, route: Self.route).text)
         #expect(rewritten == """
             #EXTM3U
             #EXT-X-KEY:METHOD=AES-128,URI="http://127.0.0.1:5000/t0k3n/0/https/keys.example.com/k?id=1"
@@ -70,7 +71,7 @@ struct ProxyRouteTests {
             """)
     }
 
-    @Test func rewritesADASHManifestButNotItsNamespaces() {
+    @Test func rewritesADASHManifestButNotItsNamespaces() throws {
         let manifest = """
             <?xml version="1.0"?>
             <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -81,8 +82,9 @@ struct ProxyRouteTests {
               </Representation></AdaptationSet></Period>
             </MPD>
             """
-        let rewritten = ManifestRewriter.rewrite(manifest, kind: .dash, from: URL(string: "https://media.example.com/v/m.mpd")!,
-                                                 input: 2, route: Self.route)
+        let rewritten = try #require(ManifestRewriter.rewrite(manifest, kind: .dash,
+                                                              from: URL(string: "https://media.example.com/v/m.mpd")!,
+                                                              input: 2, route: Self.route).text)
         #expect(rewritten.contains(#"xmlns:xlink="http://www.w3.org/1999/xlink""#))
         #expect(rewritten.contains("<BaseURL>http://127.0.0.1:5000/t0k3n/2/https/media.example.com/v/</BaseURL>"))
         #expect(rewritten.contains(#"initialization="/t0k3n/2/https/media.example.com/v/init-$RepresentationID$.mp4""#))
@@ -95,7 +97,7 @@ struct ProxyRouteTests {
     /// steered to fetch an external host itself (the proxy applies its checks to what it relays).
     /// ffmpeg's DASH demuxer follows no xlink or Location at all; this holds either way, whatever
     /// form the address takes (absolute, `//host/x`, or `/x`).
-    @Test func aDASHManifestCantSteerFFmpegToAnExternalHost() {
+    @Test func aDASHManifestCantSteerFFmpegToAnExternalHost() throws {
         let manifest = """
             <?xml version="1.0"?>
             <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -111,8 +113,9 @@ struct ProxyRouteTests {
               <Period xlink:href="/evil/part3.mpd" xlink:actuate="onRequest"/>
             </MPD>
             """
-        let rewritten = ManifestRewriter.rewrite(manifest, kind: .dash, from: URL(string: "https://media.example.com/v/m.mpd")!,
-                                                 input: 0, route: Self.route)
+        let rewritten = try #require(ManifestRewriter.rewrite(manifest, kind: .dash,
+                                                              from: URL(string: "https://media.example.com/v/m.mpd")!,
+                                                              input: 0, route: Self.route).text)
         let proxied = "http://127.0.0.1:5000/t0k3n/0/https/evil.example/"
         #expect(rewritten.contains("<Location>\(proxied)new.mpd</Location>"))
         #expect(rewritten.contains("<BaseURL>\(proxied)seg/</BaseURL>"))
@@ -135,7 +138,7 @@ struct ProxyRouteTests {
     /// with single quotes or `media = "…"`. Left raw, ffmpeg's DASH demuxer would resolve such a
     /// value against the proxied base (`http://127.0.0.1:…`) and fetch the external host directly
     /// (http is whitelisted), bypassing the proxy's SSRF checks.
-    @Test func aDASHManifestsSingleQuotedAndSpacedSegmentURLsStayOnTheProxy() {
+    @Test func aDASHManifestsSingleQuotedAndSpacedSegmentURLsStayOnTheProxy() throws {
         let manifest = """
             <?xml version="1.0"?>
             <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -148,8 +151,9 @@ struct ProxyRouteTests {
               </SegmentList></Representation></AdaptationSet></Period>
             </MPD>
             """
-        let rewritten = ManifestRewriter.rewrite(manifest, kind: .dash, from: URL(string: "https://media.example.com/v/m.mpd")!,
-                                                 input: 0, route: Self.route)
+        let rewritten = try #require(ManifestRewriter.rewrite(manifest, kind: .dash,
+                                                              from: URL(string: "https://media.example.com/v/m.mpd")!,
+                                                              input: 0, route: Self.route).text)
         // A scheme-relative (`//host`) value becomes the proxy on the manifest's scheme, as a
         // host-relative path (it resolves to the proxy, not the external host).
         let proxied = "/t0k3n/0/https/evil.example/"
@@ -167,6 +171,149 @@ struct ProxyRouteTests {
         #expect(!direct.contains("evil.example"))
         // The namespace is a declaration, not an address to fetch: left exactly as it was.
         #expect(rewritten.contains(#"xmlns:xlink="http://www.w3.org/1999/xlink""#))
+    }
+
+    /// Rewrites a DASH manifest from the usual stand-in origin, for the bypass tests below.
+    static func dash(_ manifest: String) -> ManifestRewriter.Outcome {
+        ManifestRewriter.rewrite(manifest, kind: .dash, from: URL(string: "https://media.example.com/v/m.mpd")!,
+                                 input: 0, route: route)
+    }
+
+    /// The regex rewrites what it can see in the raw bytes; ffmpeg's DASH demuxer reads the manifest
+    /// through an XML parser that first decodes character references. A hostile manifest hides a
+    /// scheme-relative (`&#47;/host`) or absolute (`htt&#112;://host`) address behind them, so the
+    /// regex leaves it alone but ffmpeg would fetch the external host directly. The manifest is
+    /// refused rather than handed over — decimal and hex references alike, in any fetchable slot.
+    @Test(arguments: [
+        #"<SegmentURL media="&#47;/evil.example/x.m4s"/>"#,           // decimal `/` → `//evil…`
+        #"<SegmentURL media="&#x2F;/evil.example/x.m4s"/>"#,          // hex `/`
+        #"<SegmentURL media="&#x2f;&#x2f;evil.example/x.m4s"/>"#,     // both slashes encoded
+        #"<SegmentURL media="htt&#112;://evil.example/x.m4s"/>"#,     // the scheme itself encoded
+        #"<SegmentURL initialization="&#47;/evil.example/i.m4s"/>"#, // another fetchable attribute
+        #"<SegmentTemplate media="&#x2f;/evil.example/$Number$.m4s"/>"#,
+        #"<BaseURL>&#47;/evil.example/seg/</BaseURL>"#,               // in element text, not an attribute
+        #"<Location>htt&#112;s://evil.example/new.mpd</Location>"#,
+        #"<Period xlink:href="&#47;/evil.example/p.mpd"/>"#,          // and in a namespaced attribute
+    ])
+    func refusesAnEntityEncodedAddressThatWouldLeaveTheProxy(_ hostile: String) {
+        let manifest = """
+            <?xml version="1.0"?>
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <Period><AdaptationSet><Representation id="1"><SegmentList>
+                \(hostile)
+              </SegmentList></Representation></AdaptationSet></Period>
+            </MPD>
+            """
+        #expect(Self.dash(manifest) == .refused)
+    }
+
+    /// A CDATA section is text to the regex (it starts with `<`, not `/`) but decoded content to
+    /// ffmpeg's parser. An external address wrapped in one slips past the rewrite, so a manifest
+    /// carrying one that would leave the proxy is refused.
+    @Test(arguments: [
+        "<BaseURL><![CDATA[//evil.example/seg/]]></BaseURL>",
+        "<Location><![CDATA[//evil.example/new.mpd]]></Location>",
+        "<BaseURL><![CDATA[//]]>evil.example/seg/</BaseURL>", // the `//` split across CDATA and text
+    ])
+    func refusesACDATAWrappedAddressThatWouldLeaveTheProxy(_ hostile: String) {
+        let manifest = """
+            <?xml version="1.0"?>
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <Period><AdaptationSet><Representation id="1">
+                \(hostile)
+              </Representation></AdaptationSet></Period>
+            </MPD>
+            """
+        #expect(Self.dash(manifest) == .refused)
+    }
+
+    /// A DTD lets a manifest define its own entities, which parsers may expand differently or not at
+    /// all — the kind of gap the rewriter can't reason about. Real DASH carries none, so any manifest
+    /// that declares a DOCTYPE or an entity is refused outright, used in a URL or not.
+    @Test func refusesAManifestThatCarriesItsOwnDTDOrEntities() {
+        let withEntity = """
+            <?xml version="1.0"?>
+            <!DOCTYPE MPD [ <!ENTITY e "//evil.example/seg/"> ]>
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011">
+              <Period><AdaptationSet><Representation id="1">
+                <BaseURL>&e;</BaseURL>
+              </Representation></AdaptationSet></Period>
+            </MPD>
+            """
+        #expect(Self.dash(withEntity) == .refused)
+        // A DOCTYPE on its own — even without an address in sight — is still refused.
+        let justDoctype = """
+            <?xml version="1.0"?>
+            <!DOCTYPE MPD>
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011"><BaseURL>seg/</BaseURL></MPD>
+            """
+        #expect(Self.dash(justDoctype) == .refused)
+    }
+
+    /// Verification is fail-closed, not blanket: a benign entity (an escaped `&` in a query, say) in
+    /// a value that still resolves to the proxy is left to play, not refused. The scheme-relative and
+    /// spaced/single-quoted forms the regex already neutralises are rewritten, so they pass too.
+    @Test func keepsManifestsWhoseDecodedAddressesStillReachOnlyTheProxy() throws {
+        let manifest = """
+            <?xml version="1.0"?>
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <BaseURL>https://media.example.com/v/</BaseURL>
+              <Period><AdaptationSet><Representation id="1"><SegmentList>
+                <SegmentURL media="seg-1&#45;hi.m4s"/>
+                <SegmentURL media="q.m4s?a=1&amp;b=2"/>
+                <SegmentURL media='//media.example.com/spaced.m4s'/>
+                <Initialization sourceURL="&#47;v/init.m4s"/>
+              </SegmentList></Representation></AdaptationSet></Period>
+            </MPD>
+            """
+        let rewritten = try #require(Self.dash(manifest).text)
+        // The decoded relative/root-relative values all resolve to the proxy, so nothing is refused.
+        #expect(rewritten.contains(#"media="seg-1&#45;hi.m4s""#))      // a hyphen entity, left as text
+        #expect(rewritten.contains(#"media="q.m4s?a=1&amp;b=2""#))     // an escaped ampersand, untouched
+        #expect(rewritten.contains("http://127.0.0.1:5000/t0k3n/0/https/media.example.com/v/"))
+        // Nothing resolves off the proxy.
+        let direct = rewritten.replacingOccurrences(of: "/t0k3n/0/https/media.example.com/", with: "")
+        #expect(!direct.contains("media.example.com"))
+    }
+
+    /// A real manifest, as ffmpeg's own DASH muxer writes one: relative segment templates, a
+    /// `SegmentTimeline`, an `xsi:schemaLocation` and a `schemeIdUri` that are identifiers rather
+    /// than addresses to fetch. None of it leaves the proxy, so it plays — the verification is
+    /// fail-closed, not a blanket refusal of every absolute URL (the schema and channel-config URIs
+    /// are left for ffmpeg to resolve, and are never fetched).
+    @Test func keepsARealFFmpegWrittenDASHManifest() throws {
+        let manifest = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <MPD xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xmlns="urn:mpeg:dash:schema:mpd:2011"
+                xmlns:xlink="http://www.w3.org/1999/xlink"
+                xsi:schemaLocation="urn:mpeg:DASH:schema:MPD:2011 http://standards.iso.org/ittf/DASH-MPD.xsd"
+                profiles="urn:mpeg:dash:profile:isoff-live:2011" type="static" minBufferTime="PT4.0S">
+              <Period id="0" start="PT0.0S">
+                <AdaptationSet id="0" contentType="video" frameRate="30/1" maxWidth="1280" maxHeight="720">
+                  <Representation id="0" mimeType="video/mp4" codecs="avc1.6e001f" bandwidth="135864" width="1280" height="720">
+                    <SegmentTemplate timescale="16000" initialization="init-stream$RepresentationID$.m4s" media="chunk-stream$RepresentationID$-$Number%05d$.m4s" startNumber="1">
+                      <SegmentTimeline><S t="0" d="32000" r="4"/></SegmentTimeline>
+                    </SegmentTemplate>
+                  </Representation>
+                </AdaptationSet>
+                <AdaptationSet id="1" contentType="audio">
+                  <Representation id="2" mimeType="audio/mp4" codecs="mp4a.40.2" bandwidth="128056" audioSamplingRate="48000">
+                    <AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="2"/>
+                    <SegmentTemplate timescale="48000" initialization="init-stream$RepresentationID$.m4s" media="chunk-stream$RepresentationID$-$Number%05d$.m4s" startNumber="1">
+                      <SegmentTimeline><S t="0" d="93184"/></SegmentTimeline>
+                    </SegmentTemplate>
+                  </Representation>
+                </AdaptationSet>
+              </Period>
+            </MPD>
+            """
+        let rewritten = try #require(Self.dash(manifest).text) // not refused
+        // The relative segment templates are left to resolve against the proxied manifest's URL.
+        #expect(rewritten.contains(#"initialization="init-stream$RepresentationID$.m4s""#))
+        #expect(rewritten.contains(#"media="chunk-stream$RepresentationID$-$Number%05d$.m4s""#))
+        // The channel-config identifier is untouched; nothing points off the proxy.
+        #expect(rewritten.contains(#"schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011""#))
     }
 
     @Test func recognisesManifestsByTypeNameOrContent() {

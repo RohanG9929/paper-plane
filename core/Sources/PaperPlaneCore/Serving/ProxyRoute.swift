@@ -53,6 +53,23 @@ enum ManifestRewriter {
         case hls, dash
     }
 
+    /// What rewriting a manifest produced: the safe, proxied text to hand to ffmpeg, or a refusal.
+    enum Outcome: Equatable, Sendable {
+        /// Proxied text: every address in it points back at the proxy.
+        case rewritten(String)
+        /// A URL ffmpeg would fetch still resolves off the proxy after rewriting — an encoding the
+        /// regex can't see but ffmpeg's XML parser can (an HTML character reference, a CDATA
+        /// section, a DTD entity). Handing it to ffmpeg would let its DASH demuxer fetch an
+        /// arbitrary host itself, past the proxy's checks (SSRF). The manifest is unsafe.
+        case refused
+
+        /// The proxied text, or nil when the manifest was refused.
+        var text: String? {
+            if case .rewritten(let text) = self { return text }
+            return nil
+        }
+    }
+
     /// Whether a response is a manifest, by its type, its name or its first bytes: a playlist
     /// served under another name must not slip past the rewriting.
     static func kind(contentType: String?, url: URL, start: Data) -> Kind? {
@@ -74,7 +91,7 @@ enum ManifestRewriter {
         return nil
     }
 
-    static func rewrite(_ text: String, kind: Kind, from manifest: URL, input: Int, route: ProxyRoute) -> String {
+    static func rewrite(_ text: String, kind: Kind, from manifest: URL, input: Int, route: ProxyRoute) -> Outcome {
         let scheme = manifest.scheme?.lowercased() ?? "https"
         let prefix = route.prefix(input: input)
         let authority = URLComponents(url: manifest, resolvingAgainstBaseURL: true).map { components in
@@ -110,7 +127,122 @@ enum ManifestRewriter {
                     return "\(match.output.1)'\(localPath(match.output.3!))'"
                 }
         }
-        return rewritten
+        // The regex above rewrites what it can see in the raw text. ffmpeg's DASH demuxer, though,
+        // reads the manifest through an XML parser that decodes character references (`&#47;`),
+        // CDATA (`<![CDATA[//host]]>`) and entities the regex never decodes — so a value that still
+        // resolves off the proxy once decoded would be fetched directly. Verify the decoded manifest
+        // and fail closed: a URL that isn't the proxy's means the manifest is refused, not played.
+        // (HLS needs none of this: ffmpeg reads its URIs verbatim, with no such decoding.)
+        if kind == .dash, !dashStaysOnTheProxy(rewritten, route: route) {
+            return .refused
+        }
+        return .rewritten(rewritten)
+    }
+
+    /// Whether every address ffmpeg's DASH demuxer would fetch, as its XML parser decodes them,
+    /// resolves to the proxy. The check is on the *rewritten* text — exactly the bytes ffmpeg reads.
+    private static func dashStaysOnTheProxy(_ manifest: String, route: ProxyRoute) -> Bool {
+        // A DTD lets a manifest declare its own entities, which parsers may expand differently (or
+        // not at all). Real DASH carries none; refuse any manifest that does rather than guess.
+        let lowered = manifest.lowercased()
+        if lowered.contains("<!doctype") || lowered.contains("<!entity") {
+            return false
+        }
+        // Leading BOM/whitespace isn't an address but trips a strict parser; ffmpeg tolerates it.
+        let body = manifest.drop { $0 == "\u{FEFF}" || $0.isWhitespace }
+        let scanner = DASHURLScanner(route: route)
+        let parser = XMLParser(data: Data(body.utf8))
+        parser.delegate = scanner
+        // A manifest we can't parse is one we can't vouch for: ffmpeg's libxml2 may still read it in
+        // recovery mode, so fail closed.
+        guard parser.parse() else { return false }
+        return scanner.safe
+    }
+}
+
+/// Walks a rewritten DASH manifest as ffmpeg's XML parser sees it (character references, CDATA and
+/// predefined entities already decoded) and decides whether every fetchable address stays on the
+/// proxy. Only the elements and attributes ffmpeg's DASH demuxer actually fetches are checked, so a
+/// namespace declaration or a `schemeIdUri` identifier — absolute URLs that are never fetched —
+/// doesn't trip it.
+private final class DASHURLScanner: NSObject, XMLParserDelegate {
+    /// True until a fetchable address is found that wouldn't resolve to the proxy.
+    private(set) var safe = true
+    private let route: ProxyRoute
+    /// Attributes whose value is a URL wherever they appear in DASH: SegmentTemplate/SegmentURL
+    /// media, initialization and index; Initialization/BitstreamSwitching/RepresentationIndex
+    /// sourceURL; and xlink:href. (`mediaRange`/`indexRange` are byte ranges, so the match is exact.)
+    private static let urlAttributes: Set<String> = ["media", "initialization", "index", "sourceURL", "href"]
+    /// Elements whose text content is a URL: a BaseURL, or a Location for a manifest update.
+    private static let urlElements: Set<String> = ["BaseURL", "Location"]
+    private var capturing = false
+    private var text = ""
+
+    init(route: ProxyRoute) {
+        self.route = route
+    }
+
+    /// The local name, without any namespace prefix (`xlink:href` → `href`).
+    private func localName(_ name: String) -> String {
+        String(name.split(separator: ":").last ?? Substring(name))
+    }
+
+    private var proxyAuthority: String {
+        (route.base.host() ?? "") + (route.base.port.map { ":\($0)" } ?? "")
+    }
+
+    /// Whether a decoded value, resolved the way ffmpeg would against the proxied base, stays on the
+    /// proxy. Relative and root-relative (`/x`) values always do: they keep the base's authority,
+    /// which is always the proxy (every absolute and scheme-relative address is checked here, so no
+    /// off-proxy one can ever become a base). Only absolute and scheme-relative (`//host`) values
+    /// can name another host, and those must be the proxy's.
+    private func staysOnTheProxy(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return true }
+        if value.hasPrefix("//") { // scheme-relative: its authority replaces the base's
+            let authority = value.dropFirst(2).prefix { $0 != "/" && $0 != "?" && $0 != "#" }
+            return authority.lowercased() == proxyAuthority
+        }
+        if value.prefixMatch(of: /[A-Za-z][A-Za-z0-9+.-]*:/) != nil { // absolute: a scheme of its own
+            return value.lowercased().hasPrefix(route.base.absoluteString.lowercased())
+        }
+        return true // relative or root-relative: resolves within the proxy's own authority
+    }
+
+    private func check(_ value: String) {
+        if !staysOnTheProxy(value) {
+            safe = false
+        }
+    }
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+                qualifiedName qName: String?, attributes attributeDict: [String: String]) {
+        for (name, value) in attributeDict where Self.urlAttributes.contains(localName(name)) {
+            check(value)
+        }
+        // Don't restart a capture already under way (a nested element): keep the outer element's text
+        // whole, since ffmpeg reads a BaseURL's entire content, descendants included.
+        if !capturing, Self.urlElements.contains(localName(elementName)) {
+            capturing = true
+            text = ""
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if capturing { text += string }
+    }
+
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        if capturing { text += String(decoding: CDATABlock, as: UTF8.self) }
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+                qualifiedName qName: String?) {
+        if capturing, Self.urlElements.contains(localName(elementName)) {
+            check(text)
+            capturing = false
+            text = ""
+        }
     }
 }
 

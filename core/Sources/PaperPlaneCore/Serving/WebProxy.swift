@@ -14,20 +14,30 @@ public final class WebProxy: Sendable {
     public let input: ResolvedInput
     private let listener: NWListener
     private let refusals: OSAllocatedUnfairLock<Bool>
+    private let blocked: OSAllocatedUnfairLock<Bool>
     private static let log = Logger(subsystem: "dev.paperplane.app", category: "proxy")
     /// A manifest larger than this isn't one Paper Plane will read.
     static let maximumManifest = 16 << 20
 
-    private init(input: ResolvedInput, listener: NWListener, refusals: OSAllocatedUnfairLock<Bool>) {
+    private init(input: ResolvedInput, listener: NWListener, refusals: OSAllocatedUnfairLock<Bool>,
+                 blocked: OSAllocatedUnfairLock<Bool>) {
         self.input = input
         self.listener = listener
         self.refusals = refusals
+        self.blocked = blocked
     }
 
     /// Whether the site has refused a request (401, 403 or 410): an expired link. ffmpeg skips
     /// segments it can't get and finishes early without saying why; this says why.
     public var siteRefused: Bool {
         refusals.withLock { $0 }
+    }
+
+    /// Whether a manifest was refused because an address in it would have reached ffmpeg unproxied
+    /// (an encoding the rewriter can't safely neutralise). The stream is blocked, not broken; the
+    /// remote says so rather than leaving a bare failure.
+    public var blockedUnsafeManifest: Bool {
+        blocked.withLock { $0 }
     }
 
     /// Serves `original`'s web inputs; local files pass through unchanged.
@@ -67,6 +77,7 @@ public final class WebProxy: Sendable {
         let token = (0..<16).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
         let route = OSAllocatedUnfairLock<ProxyRoute?>(initialState: nil)
         let refusals = OSAllocatedUnfairLock(initialState: false)
+        let blocked = OSAllocatedUnfairLock(initialState: false)
         let queue = DispatchQueue(label: "dev.paperplane.web-proxy")
         listener.newConnectionHandler = { [origins] connection in
             connection.start(queue: queue)
@@ -74,7 +85,10 @@ public final class WebProxy: Sendable {
                 connection.cancel()
                 return
             }
-            Task { await handle(connection, route: route, origins: origins, isLocal: isLocal, refusals: refusals) }
+            Task {
+                await handle(connection, route: route, origins: origins, isLocal: isLocal, refusals: refusals,
+                             blocked: blocked)
+            }
         }
         try await listener.startAndWaitUntilReady(queue: queue)
         guard let port = listener.port, let base = URL(string: "http://127.0.0.1:\(port.rawValue)/\(token)/") else {
@@ -88,7 +102,7 @@ public final class WebProxy: Sendable {
             return ResolvedInput.Input(url: proxied, manifest: item.manifest)
         }
         return WebProxy(input: ResolvedInput(inputs: inputs, title: original.title, page: original.page), listener: listener,
-                        refusals: refusals)
+                        refusals: refusals, blocked: blocked)
     }
 
     public func stop() {
@@ -98,7 +112,8 @@ public final class WebProxy: Sendable {
     // MARK: - One request
 
     private static func handle(_ connection: NWConnection, route: ProxyRoute, origins: [Origin],
-                               isLocal: @escaping @Sendable (String) -> Bool, refusals: OSAllocatedUnfairLock<Bool>) async {
+                               isLocal: @escaping @Sendable (String) -> Bool, refusals: OSAllocatedUnfairLock<Bool>,
+                               blocked: OSAllocatedUnfairLock<Bool>) async {
         defer { connection.cancel() }
         guard let request = await ProxyRequest.read(from: connection) else { return }
         guard request.method == "GET", let (upstream, index) = route.upstream(for: request.target),
@@ -163,12 +178,19 @@ public final class WebProxy: Sendable {
                     return
                 }
             }
-            let rewritten = ManifestRewriter.rewrite(String(decoding: body, as: UTF8.self), kind: kind, from: upstream,
-                                                     input: index, route: route)
-            // Named for what it is, whatever the site called it.
-            let type = kind == .hls ? "application/vnd.apple.mpegurl" : "application/dash+xml"
-            await respond(on: connection, status: response.statusCode, headers: ["Content-Type": type],
-                          body: Data(rewritten.utf8))
+            switch ManifestRewriter.rewrite(String(decoding: body, as: UTF8.self), kind: kind, from: upstream,
+                                            input: index, route: route) {
+            case .rewritten(let rewritten):
+                // Named for what it is, whatever the site called it.
+                let type = kind == .hls ? "application/vnd.apple.mpegurl" : "application/dash+xml"
+                await respond(on: connection, status: response.statusCode, headers: ["Content-Type": type],
+                              body: Data(rewritten.utf8))
+            case .refused:
+                // An address in it would have reached ffmpeg unproxied: don't hand it over.
+                log.error("Refused a manifest whose addresses would bypass the proxy")
+                blocked.withLock { $0 = true }
+                await respond(on: connection, status: 502)
+            }
             return
         }
 
